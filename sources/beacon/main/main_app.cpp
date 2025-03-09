@@ -21,7 +21,6 @@
 #include <Arduino.h>
 
 #include <WiFi.h>
-//#include <Wire.h>
 
 #include <TinyGPS++.h>
 #include "droneID_FR.h"
@@ -143,7 +142,7 @@ void setup()
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &conf_current));
     delay(2000);
     
-    esp_err_t r = esp_wifi_get_max_tx_power(&P1);
+    esp_wifi_get_max_tx_power(&P1);
     
     Serial.print("Tx power Value (dBm)=");
     Serial.println(P1*0.25);
@@ -217,7 +216,7 @@ void loop()
                 snprintf(buff[0], sizeof(buff[0]), "UTC:%d:%d:%d", gps.time.hour(), gps.time.minute(), gps.time.second());
                 snprintf(buff[1], sizeof(buff[1]), "LNG:%.4f", gps.location.lng());
                 snprintf(buff[2], sizeof(buff[2]), "LAT:%.4f", gps.location.lat());
-                snprintf(buff[3], sizeof(buff[3]), "satellites:%u", gps.satellites.value());
+                snprintf(buff[3], sizeof(buff[3]), "satellites:%lu", gps.satellites.value());
                
                 Serial.println(buff[0]);
                 Serial.println(buff[1]);

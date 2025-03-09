@@ -32,6 +32,12 @@ After that when you want to use the ESP-IDF tools you only need to source the ex
 . $HOME/esp/esp-idf/export.sh
 ```
 
+### Init submodule
+
+```
+git submodule update --init --recursive
+```
+
 ### Beacon
 
 ```
