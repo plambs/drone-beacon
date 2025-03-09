@@ -1,3 +1,5 @@
-sources/beacon/build/
-sources/beacon/sdkconfig.old
-sources/beacon/sdkconfig.ci
+sources/*/build/
+sources/*/sdkconfig.old
+sources/*/sdkconfig.ci
+sources/*/managed_components/
+sources/*/dependencies.lock

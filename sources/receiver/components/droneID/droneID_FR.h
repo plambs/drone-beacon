@@ -506,6 +506,12 @@ private:
     static inline uint16_t get_2_complement(int16_t value) {
         return value & 0xFFFF;
     }
+    static inline uint32_t get_2_complement(uint32_t value) {
+        return value & 0xFFFFFFFF;
+    }
+    static inline uint16_t get_2_complement(uint16_t value) {
+        return value & 0xFFFF;
+    }
 
     // Taken from TinyGPS++
     /**

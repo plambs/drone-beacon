@@ -5,8 +5,9 @@
  *  Version 1/11/2020
  */
 
+#include <Arduino.h>
 #include <esp_wifi.h>
-#include <esp_event_loop.h>
+#include <esp_event.h>
 #include <nvs_flash.h>
 #include <BLEDevice.h>
 #include <BLEUtils.h>
