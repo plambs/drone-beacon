@@ -4,6 +4,6 @@
 [submodule "sources/receiver/components/arduino"]
 	path = sources/receiver/components/arduino
 	url = https://github.com/espressif/arduino-esp32.git
-[submodule "sources/receiver/components/lvgl"]
+[submodule "lvgl"]
 	path = sources/receiver/components/lvgl
-	url = https://github.com/lvgl/lvgl_esp32_drivers.git
+	url = https://github.com/lvgl/lvgl.git
