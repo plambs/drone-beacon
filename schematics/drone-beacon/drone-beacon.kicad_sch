@@ -4178,7 +4178,7 @@
 				)
 			)
 		)
-		(property "Footprint" "Package_TO_SOT_SMD:SOT-89-3"
+		(property "Footprint" "Package_TO_SOT_SMD:SOT-223"
 			(at 148.59 20.32 0)
 			(effects
 				(font
@@ -4834,7 +4834,7 @@
 				)
 			)
 		)
-		(property "Footprint" ""
+		(property "Footprint" "Connector_PinHeader_2.00mm:PinHeader_1x02_P2.00mm_Vertical"
 			(at 96.52 30.48 0)
 			(effects
 				(font
