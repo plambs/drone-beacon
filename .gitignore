@@ -7,4 +7,4 @@ sources/*/dependencies.lock
 schematics/drone-beacon/drone-beacon-backups/
 schematics/drone-beacon/drone-beacon.kicad_sch-bak
 schematics/drone-beacon/~drone-beacon.kicad_pcb.lck
-schematics/drone-beacon/fp-info-cache
+schematics/drone-beacon/production/backups/
