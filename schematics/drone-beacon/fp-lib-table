@@ -1,0 +1,4 @@
+(fp_lib_table
+  (version 7)
+  (lib (name "QUECTEL_L96")(type "KiCad")(uri "${KIPRJMOD}/libraries/quectel_l96")(options "")(descr ""))
+)
