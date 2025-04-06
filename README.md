@@ -21,7 +21,7 @@ sudo apt-get install git wget flex bison gperf python3 python3-pip python3-venv 
 
 mkdir -p ~/esp
 cd ~/esp
-git clone -b v5.2.5 --recursive https://github.com/espressif/esp-idf.git
+git clone -b v5.4 --recursive https://github.com/espressif/esp-idf.git
 
 cd ~/esp/esp-idf
 ./install.sh esp32
@@ -59,3 +59,4 @@ idf.py flash
 ```
 idf.py monitor
 ```
+To exit the monitor use Ctrl+T Ctrl+X
