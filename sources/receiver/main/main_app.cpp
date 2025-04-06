@@ -9,18 +9,9 @@
 #include <esp_wifi.h>
 #include <esp_event.h>
 #include <nvs_flash.h>
-#include <BLEDevice.h>
-#include <BLEUtils.h>
-#include <BLEServer.h>
+#include "lvgl.h"
 
-// See the following for generating UUIDs:
-// https://www.uuidgenerator.net/
-
-#define SERVICE_UUID        "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
-#define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-#define DEFAULT_SCAN_LIST_SIZE 20
 String trame;
-BLECharacteristic * pCharacteristic;
 
 /**
   * Enumeration des types de données à envoyer
@@ -100,8 +91,8 @@ esp_err_t event_handler(void *ctx, system_event_t *event)
 void wifi_sniffer_init(void)
 {
   nvs_flash_init();
-  tcpip_adapter_init();
-  ESP_ERROR_CHECK( esp_event_loop_init(event_handler, NULL) );
+  esp_netif_init();
+  ESP_ERROR_CHECK( esp_event_loop_run(event_handler, NULL) );
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
   ESP_ERROR_CHECK( esp_wifi_init(&cfg) );
   ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM) );
@@ -233,8 +224,6 @@ void beaconCallback(void* buf, wifi_promiscuous_pkt_type_t type)
     Serial.print(" DIR: "); printAltitude(offset, len, TLV_LENGTH[HEADING] , snifferPacket->payload); 
     Serial.println();
     Serial.println(trame);
-    pCharacteristic->setValue(trame.c_str());
-    pCharacteristic->notify();
     trame="";
     Serial.print("RSSI=");
     Serial.println(snifferPacket->rx_ctrl.rssi);
@@ -248,24 +237,6 @@ void setup() {
   delay(1000);
   wifi_sniffer_init();
   wifi_sniffer_set_channel(6);
-  //initialisation du BLE
-  BLEDevice::setMTU(150);
-  BLEDevice::init("balise");
-  BLEServer *pServer = BLEDevice::createServer();
-  BLEService *pService = pServer->createService(SERVICE_UUID);
-  pCharacteristic = pService->createCharacteristic(
-                                         CHARACTERISTIC_UUID,
-                                         BLECharacteristic::PROPERTY_READ |
-                                         BLECharacteristic::PROPERTY_WRITE
-                                       );
-  pService->start();
-  // BLEAdvertising *pAdvertising = pServer->getAdvertising();  // this still is working for backward compatibility
-  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->setScanResponse(true);
-  pAdvertising->setMinPreferred(0x06);  // functions that help with iPhone connections issue
-  pAdvertising->setMinPreferred(0x12);
-  BLEDevice::startAdvertising();
 }
 
 // the loop function runs over and over again forever
