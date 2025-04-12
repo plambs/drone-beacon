@@ -40,23 +40,25 @@ esp_err_t esp_wifi_80211_tx(wifi_interface_t ifx, const void *buffer, int len, b
 #define GPS_RX_PIN 16
 #define GPS_TX_PIN 17
 
+#define BEACON_ID_FULL_LENGTH 31
+
 TinyGPSPlus gps;
 droneIDFR drone_idfr;
 
 /* Change the value in config.h */
 const char ssid[] = BEACON_SSID;
-const char *password = BEACON_PASSWORD;
-const char drone_id[] = BEACON_ID;
+const char password[] = BEACON_PASSWORD;
+char beacon_id[BEACON_ID_FULL_LENGTH] = "BEACON_ID_IS_NOT_SET_000000000";
 
 /*
  * DO NOT CHANGE THE WIFI CONFIGURATION
  */
 // Wifi use the channel 6 as asked by the specification.
 static constexpr uint8_t wifi_channel = 6;
-// Ensure the drone_id is max 30 letters
+// Ensure the ssid is max 30 letters
 static_assert((sizeof(ssid)/sizeof(*ssid))<=32, "AP SSID should be less than 32 letters");
-// Ensure the drone_id is max 30 letters
-static_assert((sizeof(drone_id)/sizeof(*drone_id))<=31, "Drone ID should be less that 30 letters !");  // 30 lettres + null termination
+// Ensure the beacon_id is max 30 letters
+static_assert((sizeof(beacon_id)/sizeof(*beacon_id))<=BEACON_ID_FULL_LENGTH, "Drone ID should be less that 30 letters !");  // 30 lettres + null termination
 // beacon frame definition
 static constexpr uint16_t MAX_BEACON_SIZE = 40 + 32 + droneIDFR::FRAME_PAYLOAD_LEN_MAX;  // default beaconPacket size + max ssid size + max drone id frame size
 uint8_t beaconPacket[MAX_BEACON_SIZE] = {
@@ -108,7 +110,16 @@ typedef enum {
 	MODEL_MASS_25KG_150KG = 3,
 } model_mass;
 
-static void set_led_state(led_state state)
+typedef struct {
+	char builder_id[4];
+	char version_id[4];
+	char mac[13];
+	model_group group;
+	model_mass mass;
+	char mass_str[4];
+} beacon_data;
+
+static void _set_led_state(led_state state)
 {
 	switch(state)
 	{
@@ -124,15 +135,28 @@ static void set_led_state(led_state state)
 	}
 }
 
+static void _blink_led(uint8_t nb_blink, uint16_t delay_ms)
+{
+	_set_led_state(LED_OFF);
+	delay(delay_ms);
+	for(int i = 0; i < nb_blink; i++)
+	{
+		if((i % 2) == 0)
+		{
+			_set_led_state(LED_ON);
+		} else {
+			_set_led_state(LED_OFF);
+		}
+		delay(delay_ms);
+	}
+}
+
 static model_group _get_model_group(void)
 {
 	uint8_t group = 0;
     group = group | (uint8_t)(digitalRead(DIP_SWITCH_1_PIN));
     group = group | (uint8_t)(digitalRead(DIP_SWITCH_2_PIN) << 1);
 
-	Serial.print("Model group: ");
-    Serial.println(group);
-	
 	return (model_group)group;
 }
 
@@ -142,11 +166,87 @@ static model_mass _get_model_mass(void)
     mass = mass | (uint8_t)(digitalRead(DIP_SWITCH_3_PIN));
     mass = mass | (uint8_t)(digitalRead(DIP_SWITCH_4_PIN) << 1);
 
-	Serial.print("Model mass: ");
-    Serial.println(mass);
-
 	return (model_mass)mass;
 }
+
+static int _get_mass_str(char *str, int max_size)
+{
+	model_mass mass = _get_model_mass();
+	uint16_t mass_value = 999;
+	switch(mass)
+	{
+		case MODEL_MASS_800GR_2KG:
+			mass_value = 2;
+			break;
+		case MODEL_MASS_2KG_4KG:
+			mass_value = 4;
+			break;
+		case MODEL_MASS_4KG_25KG:
+			mass_value = 25;
+			break;
+		case MODEL_MASS_25KG_150KG:
+			mass_value = 150;
+			break;
+		default:
+			Serial.printf("Error wrong model mass category: %d\n", mass);
+			break;
+	}
+
+	// Format the mass str
+	snprintf(str, max_size, "%03d", mass_value);
+
+	return 0;
+}
+
+static int _get_mac_str(char *str, int max_size)
+{
+	uint8_t mac[6];
+	esp_err_t ret = esp_wifi_get_mac(WIFI_IF_STA, mac);
+	if (ret == ESP_OK) {
+
+		snprintf(str, max_size, "%02x%02x%02x%02x%02x%02x",
+				mac[0], mac[1], mac[2],
+				mac[3], mac[4], mac[5]);
+	} else {
+		Serial.println("Error while getting the MAC address");
+		return -1;
+	}
+
+	Serial.printf("Mac address: %s\n", str);
+
+	return 0;
+}
+
+static void _get_beacon_data(beacon_data *data)
+{
+	snprintf(data->builder_id, 4, "%s", BEACON_BUILDER_ID);
+	snprintf(data->version_id, 4, "%s", BEACON_MODEL_ID);
+	_get_mac_str(data->mac, 13);
+	data->group = _get_model_group();
+	data->mass = _get_model_mass();
+	_get_mass_str(data->mass_str, 4);
+}
+
+static void _format_beacon_id(char *str, uint8_t max_size, beacon_data *data)
+{
+	// Compute the beacon full id using MAC address
+	snprintf(str, max_size, "%s%s%07d%01d%s%s", data->builder_id, data->version_id, 0, data->group, data->mass_str, data->mac);
+
+	// Display the beacon full id
+	Serial.printf("AlfaTango balise ID: %s  %s  %01d%s%s\n", data->builder_id, data->version_id, data->group, data->mass_str, data->mac);
+	Serial.printf("Emitted balise ID  : %s\n", str);
+}
+
+static void _print_beacon_data(beacon_data *data)
+{
+	Serial.printf("Beacon data\n");
+	Serial.printf(" - builder id: %s\n", data->builder_id);
+	Serial.printf(" - version id: %s\n", data->version_id);
+	Serial.printf(" - mac: %s\n", data->mac);
+	Serial.printf(" - model group: %d\n", data->group);
+	Serial.printf(" - model mass: %d (str: %s)\n", data->mass, data->mass_str);
+}
+
 
 /**
  * Phase de configuration.
@@ -214,6 +314,8 @@ void setup()
     Serial.println("Starting AP");
     WiFi.softAP(ssid, nullptr, wifi_channel);
     IPAddress myIP = WiFi.softAPIP();
+
+	// Print wifi data
     Serial.print("AP IP address: ");
     Serial.println(myIP);
     Serial.print("AP mac address: ");
@@ -221,27 +323,26 @@ void setup()
     wifi_config_t conf_current;
     esp_wifi_get_config(WIFI_IF_AP, &conf_current);
 
+	// Format beacon ID according to specification for AlphaTango
+	beacon_data data;
+	_get_beacon_data(&data);
+	_print_beacon_data(&data);
+	_format_beacon_id(beacon_id, sizeof(beacon_id), &data);
+
     // Change WIFI AP default beacon interval sending to 1s.
     conf_current.ap.beacon_interval = 1000;
-    drone_idfr.set_drone_id(drone_id);
+    drone_idfr.set_drone_id(beacon_id);
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &conf_current));
 
-	// TODO usefull ?
+	// TODO usefull 
     delay(1000);
     
     //check if Tansmit power is at his max (20 dBm -> 100mW)
 	int8_t P1 = 0;
     esp_wifi_get_max_tx_power(&P1);
-    Serial.print("Tx power Value (dBm)=");
-    Serial.println(P1*0.25);
-    if (P1>77) {
-      for(int i=0; i<10; i++){
-        digitalWrite(LED_PIN, HIGH);   
-		set_led_state(LED_ON);
-        delay(20);                      
-		set_led_state(LED_OFF);
-        delay(20);
-      }
+    Serial.printf("Tx power Value (dBm)=%f", (P1*0.25));
+    if(P1>77) {
+		_blink_led(10, 20);
     }
 }
 
@@ -259,23 +360,6 @@ void loop()
 	uint64_t beaconSec = 0;
 	bool stat_led = false;
 
-	_get_model_group();
-	_get_model_mass();
-
-	/*
-		ID format is like that: 000 AM1 00000000 G MMM XXXXXXXXXXXX
-		000 is the balise builder id, for homemade one we must use 000
-		AM1 is the beacon id
-		00000000 don't change it.
-		XXXXXXXXXXXX will be replaced with the MAC address of the beacon.
-		G will be replaced with the model group
-		MMM will be replaced by the model mass
-			- 002 (group 0)
-			- 004 (group 1)
-			- 025 (group 2)
-			- 150 (group 3)
-	 */
-
 	while(1)
 	{
 		// Read gps data and feed the TinyGPS++ library
@@ -291,7 +375,7 @@ void loop()
 			Serial.println(buff[0]);
 
 			// Turn off the led when the beacon is not working.
-			set_led_state(LED_OFF);
+			_set_led_state(LED_OFF);
 
 			// Wait some time then retry.
 			delay(500);
@@ -304,7 +388,7 @@ void loop()
 		if (!gps.location.isValid()) {
 			if (millis() - gpsMap > 1000) {
 				// Blink the led once
-				set_led_state(LED_ON);
+				_set_led_state(LED_ON);
 
 				// Print info logs
 				// Print the total number of characters received by the object.
@@ -329,7 +413,7 @@ void loop()
 
 				// Add a little delay before turning off the led.
 				delay(10);
-				set_led_state(LED_OFF);
+				_set_led_state(LED_OFF);
 			}
 
 			// Jump to the next interation of the main loop.
@@ -383,11 +467,11 @@ void loop()
 			Serial.println("Send beacon");
 			// toggle the LED to see beacon sended
 			if (stat_led) {
-				set_led_state(LED_OFF);
+				_set_led_state(LED_OFF);
 				stat_led = false;
 			}
 			else {
-				set_led_state(LED_ON);
+				_set_led_state(LED_ON);
 				stat_led = true;
 			}
 
