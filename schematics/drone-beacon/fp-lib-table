@@ -1,5 +1,0 @@
-(fp_lib_table
-  (version 7)
-  (lib (name "QUECTEL_L96")(type "KiCad")(uri "${KIPRJMOD}/libraries/quectel_l96")(options "")(descr ""))
-  (lib (name "L96_NEW")(type "KiCad")(uri "/home/pal/modelisme/drone-beacon/schematics/footprints/L96-M33")(options "")(descr ""))
-)
