@@ -21,7 +21,7 @@ sudo apt-get install git wget flex bison gperf python3 python3-pip python3-venv 
 
 mkdir -p ~/esp
 cd ~/esp
-git clone -b v5.4 --recursive https://github.com/espressif/esp-idf.git
+git clone -b v5.4.3 --recursive https://github.com/espressif/esp-idf.git
 
 cd ~/esp/esp-idf
 ./install.sh esp32
@@ -41,7 +41,7 @@ git submodule update --init --recursive
 ### Beacon
 
 ```
-cd source/beacon
+cd sources/beacon
 idf.py build
 idf.py flash
 ```
@@ -49,7 +49,7 @@ idf.py flash
 ### Receiver
 
 ```
-cd source/beacon
+cd sources/receiver
 idf.py build
 idf.py flash
 ```
