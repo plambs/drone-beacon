@@ -11,7 +11,7 @@
  *
  *  You should have received a copy of the GNU General Public License
  *  along with this program.  If not, see <https://www.gnu.org/licenses/>.
- *  
+ *
  *  Used with ESP32 + BN220, modified by Julien Launay 14/09/2020
  *  Using https://github.com/khancyr/TTGO_T_BEAM/tree/master/src. Thanks to Pierre Khancyr the original author of this project.
  *  With https://github.com/f5soh/balise_esp32/blob/droneID_FR_testing/droneID_FR.h
@@ -41,8 +41,6 @@ esp_err_t esp_wifi_80211_tx(wifi_interface_t ifx, const void *buffer, int len, b
 #define GPS_TX_PIN 17
 
 #define BEACON_ID_FULL_LENGTH 31
-
-#define PRINT_RAW_GPS_DATA 0
 
 TinyGPSPlus gps;
 droneIDFR drone_idfr;
@@ -132,7 +130,7 @@ static void _set_led_state(led_state state)
             digitalWrite(LED_PIN, LOW);
 			break;
 		default:
-            Serial.println("Error: wrong led state");
+            printf("Error: wrong led state");
 			break;
 	}
 }
@@ -190,7 +188,7 @@ static int _get_mass_str(char *str, int max_size)
 			mass_value = 150;
 			break;
 		default:
-			Serial.printf("Error wrong model mass category: %d\n", mass);
+			printf("Error wrong model mass category: %d\n", mass);
 			break;
 	}
 
@@ -210,11 +208,11 @@ static int _get_mac_str(char *str, int max_size)
 				mac[0], mac[1], mac[2],
 				mac[3], mac[4], mac[5]);
 	} else {
-		Serial.println("Error while getting the MAC address");
+		printf("Error while getting the MAC address");
 		return -1;
 	}
 
-	Serial.printf("Mac address: %s\n", str);
+	printf("Mac address: %s\n", str);
 
 	return 0;
 }
@@ -235,18 +233,18 @@ static void _format_beacon_id(char *str, uint8_t max_size, beacon_data *data)
 	snprintf(str, max_size, "%s%s%07d%01d%s%s", data->builder_id, data->version_id, 0, data->group, data->mass_str, data->mac);
 
 	// Display the beacon full id
-	Serial.printf("AlfaTango balise ID: %s  %s  %01d%s%s\n", data->builder_id, data->version_id, data->group, data->mass_str, data->mac);
-	Serial.printf("Emitted balise ID  : %s\n", str);
+	printf("AlfaTango balise ID: %s  %s  %01d%s%s\n", data->builder_id, data->version_id, data->group, data->mass_str, data->mac);
+	printf("Emitted balise ID  : %s\n", str);
 }
 
 static void _print_beacon_data(beacon_data *data)
 {
-	Serial.printf("Beacon data\n");
-	Serial.printf(" - builder id: %s\n", data->builder_id);
-	Serial.printf(" - version id: %s\n", data->version_id);
-	Serial.printf(" - mac: %s\n", data->mac);
-	Serial.printf(" - model group: %d\n", data->group);
-	Serial.printf(" - model mass: %d (str: %s)\n", data->mass, data->mass_str);
+	printf("Beacon data\n");
+	printf(" - builder id: %s\n", data->builder_id);
+	printf(" - version id: %s\n", data->version_id);
+	printf(" - mac: %s\n", data->mac);
+	printf(" - model group: %d\n", data->group);
+	printf(" - model mass: %d (str: %s)\n", data->mass, data->mass_str);
 }
 
 static void _print_gps_firmware_version()
@@ -270,7 +268,7 @@ static void _print_gps_firmware_version()
 
 			if (c == '\n')
 			{
-				Serial.println("Quectel L96-M33 fw version: " + line);
+				printf("Quectel L96-M33 fw version: %s",line.c_str());
 				return;
 			}
 			else if (c != '\r')
@@ -280,7 +278,7 @@ static void _print_gps_firmware_version()
 		}
 	}
 
-	Serial.println("no firmware response");
+	printf("no firmware response");
 }
 
 
@@ -305,7 +303,7 @@ void setup()
 	// Start communication and change baudrate
     Serial2.begin(GPS_BAUDRATE_DEFAULT, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
 	Serial2.println("$PMTK251,115200*1F"); // Set baudrate to 115200bauds
-	delay(300);
+	delay(300); // Let time to the gps module to change its baudrate.
 	Serial2.end();
 
 	// Restart communication with gps using the new baudrate
@@ -314,7 +312,7 @@ void setup()
 	_print_gps_firmware_version();
 
 	// Send the rest of the gps configuration
-    Serial.print("Configure GPS module:");
+    printf("Configure GPS module: ");
 	Serial2.println("$PMTK255,1*2D"); // Enable PPS
 	Serial2.println("$PMTK886,0*28"); // Normal navigation mode
 	Serial2.println("$PMTK869,1,0*34"); // Disable EASY message
@@ -325,14 +323,15 @@ void setup()
 	Serial2.println("$PMTK314,0,1,0,1,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0*28");
 	Serial2.println("$PMTK286,1*23"); // Enable AIC function.
 	Serial2.println("$PMTK285,4,100*38"); // Set pps pulse width to always, and 100ms.
-    Serial.println(" Done");
+    printf("Done\n");
 
 	// Init the wifi, create an access point that do nothing.
-    Serial.println("Starting AP");
+    printf("Starting AP");
     WiFi.softAP(ssid, nullptr, wifi_channel);
     IPAddress myIP = WiFi.softAPIP();
 
 	// Print wifi data
+	// TODO replace by printf
     Serial.print("AP IP address: ");
     Serial.println(myIP);
     Serial.print("AP mac address: ");
@@ -353,11 +352,11 @@ void setup()
 
 	// TODO usefull ?
     delay(1000);
-    
+
     //check if Tansmit power is at his max (20 dBm -> 100mW)
 	int8_t P1 = 0;
     esp_wifi_get_max_tx_power(&P1);
-    Serial.printf("Tx power Value (dBm)=%f", (P1*0.25));
+    printf("Tx power Value (dBm)=%f", (P1*0.25));
     if(P1>77) {
 		_blink_led(10, 20);
     }
@@ -372,7 +371,6 @@ void loop()
 
 	bool has_set_home = false;
 	double home_alt = 0.0;
-	char buff[5][256];
 	uint64_t gpsSec = 0;
 	uint64_t beaconSec = 0;
 	bool stat_led = false;
@@ -388,8 +386,7 @@ void loop()
 		// Case where the gps as an issue and doesn't work properly.
 		if (millis() > 5000 && gps.charsProcessed() < 10) {
 			// Print info log
-			snprintf(buff[0], sizeof(buff[0]), "No GPS detected");
-			Serial.println(buff[0]);
+			printf("No GPS detected\n");
 
 			// Turn off the led when the beacon is not working.
 			_set_led_state(LED_OFF);
@@ -412,20 +409,12 @@ void loop()
 				// Print the number of $GPRMC or $GPGGA sentences that had a fix.
 				// Print the number of sentences of all types that failed the checksum test
 				// Print the number of sentences of all types that passed the checksum test
-				snprintf(buff[0], sizeof(buff[0]), "Positioning(%llu)", gpsSec++);
-    			snprintf(buff[1], sizeof(buff[1]), "Char processed: %ld", gps.charsProcessed());
-    			snprintf(buff[2], sizeof(buff[2]), "Sentence with fix: %ld", gps.sentencesWithFix());
-    			snprintf(buff[3], sizeof(buff[3]), "Failed checksum: %ld", gps.failedChecksum());
-    			snprintf(buff[4], sizeof(buff[4]), "Passed checksum: %ld", gps.passedChecksum());
-
-				Serial.println(buff[0]);
-				Serial.println(buff[1]);
-				Serial.println(buff[2]);
-				Serial.println(buff[3]);
-				Serial.println(buff[4]);
-				Serial.println("");
-				//Serial.print("Satellites in view: ");
-				//Serial.println(gps.satellites.value());
+				printf("\nPositioning (%llu)\n", gpsSec++);
+				printf("Char processed: %ld\n", gps.charsProcessed());
+				printf("Sentence with fix: %ld\n", gps.sentencesWithFix());
+				printf("Failed checksum: %ld\n", gps.failedChecksum());
+				printf("Passed checksum: %ld\n", gps.passedChecksum());
+				printf("satellites: %lu\n\n", gps.satellites.value());
 
 				// Keep track of the elapsed time.
 				gpsMap = millis();
@@ -441,10 +430,10 @@ void loop()
 
 		// GPS is valid, set the home position when the precision is high enough
 		if (!has_set_home && gps.satellites.value() > 6 && gps.hdop.hdop() < 2.0) {
-			Serial.println("Setting Home Position");
+			printf("Setting Home Position");
 			has_set_home = true;
 			home_alt = gps.altitude.meters();
-			Serial.println("Altitude de départ="+String(home_alt));
+			printf("Altitude de départ=%s", String(home_alt).c_str());
 			drone_idfr.set_home_position(gps.location.lat(), gps.location.lng(), gps.altitude.meters());
 
 			_set_led_state(LED_ON);
@@ -460,15 +449,10 @@ void loop()
 		// Display gps data in the serial console for debug purpose
 		if (millis() - gpsMap > 1000) {
 
-			snprintf(buff[0], sizeof(buff[0]), "UTC:%d:%d:%d", gps.time.hour(), gps.time.minute(), gps.time.second());
-			snprintf(buff[1], sizeof(buff[1]), "LNG:%.4f", gps.location.lng());
-			snprintf(buff[2], sizeof(buff[2]), "LAT:%.4f", gps.location.lat());
-			snprintf(buff[3], sizeof(buff[3]), "satellites:%lu", gps.satellites.value());
-
-			Serial.println(buff[0]);
-			Serial.println(buff[1]);
-			Serial.println(buff[2]);
-			Serial.println(buff[3]);
+			printf("UTC:%d:%d:%d\n", gps.time.hour(), gps.time.minute(), gps.time.second());
+			printf("LNG:%.4f\n", gps.location.lng());
+			printf("LAT:%.4f\n", gps.location.lat());
+			printf("satellites:%lu\n", gps.satellites.value());
 
 			gpsMap = millis();
 		}
@@ -482,7 +466,7 @@ void loop()
 		 *  - et dans le cas où les données GPS sont nouvelles.
 		 */
 		if (drone_idfr.has_home_set() && drone_idfr.time_to_send()) {
-			Serial.println("Send beacon");
+			printf("Send beacon");
 			// toggle the LED to see beacon sended
 			if (stat_led) {
 				_set_led_state(LED_OFF);
@@ -494,16 +478,17 @@ void loop()
 			}
 
 			// Compute elapsed time and save new actual reference time.
-			float time_elapsed = (float(millis() - beaconSec) / 1000); 
+			float time_elapsed = (float(millis() - beaconSec) / 1000);
 			beaconSec = millis();
 
 #if 1
 			// Print the beacon data that we use for the frame
-			Serial.print(time_elapsed,1);
-			Serial.print("s Send beacon: ");
-			Serial.print(drone_idfr.has_pass_distance() ? "Distance" : "Time");
-			Serial.print(" with ");  Serial.print(drone_idfr.get_distance_from_last_position_sent());
-			Serial.print("m Speed="); Serial.println(drone_idfr.get_ground_speed_kmh()); 
+			printf("%fs Send beacon: %s with %fm Speed=%f",
+				time_elapsed,
+				drone_idfr.has_pass_distance() ? "Distance" : "Time",
+				drone_idfr.get_distance_from_last_position_sent(),
+				drone_idfr.get_ground_speed_kmh()
+			);
 #endif
 
 			// write new SSID into beacon frame
@@ -518,12 +503,11 @@ void loop()
 
 #if 0
 			// Debug log to show the id frame in the serial console
-			Serial.println("beaconPacket : ");
+			printf("beaconPacket : ");
 			for (auto i=0; i<sizeof(beaconPacket);i++) {
-				Serial.print(beaconPacket[i], HEX);
-				Serial.print(" ");
+				printd("0x%X ", beaconPacket[i]);
 			}
-			Serial.println(" ");*/
+			printf("\n");
 #endif
 
 			// Send the wifi identification frame
