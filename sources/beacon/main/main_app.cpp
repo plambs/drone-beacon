@@ -36,11 +36,13 @@ esp_err_t esp_wifi_80211_tx(wifi_interface_t ifx, const void *buffer, int len, b
 #define LED_PIN 2
 
 #define GPS_BAUDRATE_DEFAULT 9600
-#define GPS_BAUDRATE 115200
+#define GPS_BAUDRATE_115200 115200
 #define GPS_RX_PIN 16
 #define GPS_TX_PIN 17
 
 #define BEACON_ID_FULL_LENGTH 31
+
+#define PRINT_RAW_GPS_DATA 0
 
 TinyGPSPlus gps;
 droneIDFR drone_idfr;
@@ -247,6 +249,40 @@ static void _print_beacon_data(beacon_data *data)
 	Serial.printf(" - model mass: %d (str: %s)\n", data->mass, data->mass_str);
 }
 
+static void _print_gps_firmware_version()
+{
+	String line = "";
+	unsigned long start_time = millis();
+
+	// Flush old data
+    while (Serial2.available())
+    {
+        Serial2.read();
+    }
+
+	Serial2.println("$PMTK605*31");
+
+	while (millis() - start_time < 200)
+	{
+		while (Serial2.available())
+		{
+			char c = Serial2.read();
+
+			if (c == '\n')
+			{
+				Serial.println("Quectel L96-M33 fw version: " + line);
+				return;
+			}
+			else if (c != '\r')
+			{
+				line += c;
+			}
+		}
+	}
+
+	Serial.println("no firmware response");
+}
+
 
 /**
  * Phase de configuration.
@@ -268,47 +304,28 @@ void setup()
     // Init Quectel L96 gps module.
 	// Start communication and change baudrate
     Serial2.begin(GPS_BAUDRATE_DEFAULT, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
-	Serial2.println("$PMTK103*30"); // Cold start the GPS
 	Serial2.println("$PMTK251,115200*1F"); // Set baudrate to 115200bauds
+	delay(300);
 	Serial2.end();
 
 	// Restart communication with gps using the new baudrate
-    Serial2.begin(GPS_BAUDRATE_DEFAULT, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+    Serial2.begin(GPS_BAUDRATE_115200, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+
+	_print_gps_firmware_version();
 
 	// Send the rest of the gps configuration
+    Serial.print("Configure GPS module:");
 	Serial2.println("$PMTK255,1*2D"); // Enable PPS
 	Serial2.println("$PMTK886,0*28"); // Normal navigation mode
 	Serial2.println("$PMTK869,1,0*34"); // Disable EASY message
-	Serial2.println("$PMTK838,0*2D"); // Disable jamming detection
-	Serial2.println("$PMTK514,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0*2E"); // Configure message output, keep only GGA and RMC, disable VTG, GSA, GSV and GLL.
+	Serial2.println("$PMTK838,1*2C"); // Enable jamming detection
+	Serial2.println("$PMTK514,0,1,0,1,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0*2E"); // Configure message output, keep only GGA and RMC, disable VTG, GSA, GSV and GLL.
 	Serial2.println("$PMTK353,1,1,1,0,0*2A"); // Search for GPS + Glonass + Galileo satellites.
 	Serial2.println("$PMTK352,0*2A"); // Stop QZSS regional positioning service.
-	Serial2.println("$PMTK314,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0*28"); // Send sentence for RMC and GGA each fix.
-	Serial2.println("$PMTK286,0*22"); // Disable AIC function.
+	Serial2.println("$PMTK314,0,1,0,1,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0*28");
+	Serial2.println("$PMTK286,1*23"); // Enable AIC function.
 	Serial2.println("$PMTK285,4,100*38"); // Set pps pulse width to always, and 100ms.
-
-#if 0
-	// Debug
-	String data = "";
-	int8_t byteRead = 0;
-	while(1)
-	{
-		byteRead = Serial2.read();
-		if(byteRead == -1)
-		{
-			if(data != "")
-			{
-				Serial.println(data);
-			}
-			data = "";
-			delay(250);
-		}
-		else
-		{
-			data.concat((char)byteRead);
-		}
-	}
-#endif
+    Serial.println(" Done");
 
 	// Init the wifi, create an access point that do nothing.
     Serial.println("Starting AP");
@@ -334,7 +351,7 @@ void setup()
     drone_idfr.set_drone_id(beacon_id);
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &conf_current));
 
-	// TODO usefull 
+	// TODO usefull ?
     delay(1000);
     
     //check if Tansmit power is at his max (20 dBm -> 100mW)
@@ -407,6 +424,8 @@ void loop()
 				Serial.println(buff[3]);
 				Serial.println(buff[4]);
 				Serial.println("");
+				//Serial.print("Satellites in view: ");
+				//Serial.println(gps.satellites.value());
 
 				// Keep track of the elapsed time.
 				gpsMap = millis();
@@ -428,8 +447,7 @@ void loop()
 			Serial.println("Altitude de départ="+String(home_alt));
 			drone_idfr.set_home_position(gps.location.lat(), gps.location.lng(), gps.altitude.meters());
 
- 			// All is ok set the led on.
-			digitalWrite(LED_PIN, HIGH);
+			_set_led_state(LED_ON);
 		}
 
 		// Send the gps data to the drone_idfr lib to format them.
