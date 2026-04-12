@@ -362,6 +362,37 @@ void setup()
     }
 }
 
+static void _parseGSV(String sentence) {
+	int fieldIndex = 0;
+	int satellitesInView = 0;
+
+	char *token;
+	char buffer[120];
+	sentence.toCharArray(buffer, sizeof(buffer));
+
+	token = strtok(buffer, ",");
+
+	while (token != NULL) {
+		if (fieldIndex == 3) {
+			satellitesInView = atoi(token);
+			Serial.print("Satellites in view: ");
+			Serial.println(satellitesInView);
+		}
+
+		// SNR fields are every 4th after index 4
+		if (fieldIndex >= 7 && ((fieldIndex - 7) % 4 == 0)) {
+			int snr = atoi(token);
+			if (snr > 0) {
+				Serial.print("SNR: ");
+				Serial.println(snr);
+			}
+		}
+
+		token = strtok(NULL, ",");
+		fieldIndex++;
+	}
+}
+
 /**
  * Début du code principal. C'est une boucle infinie.
  */
@@ -377,10 +408,22 @@ void loop()
 
 	while(1)
 	{
-		// Read gps data and feed the TinyGPS++ library
+		// Read gps data and feed the TinyGPS++ library, display the wanted sentence for debug
 		while (Serial2.available())
 		{
-			gps.encode(Serial2.read());
+			char c = Serial2.read();
+			gps.encode(c);
+
+			static String nmea = "";
+			if (c == '\n') {
+				Serial.println(nmea);
+				if (nmea.startsWith("$GPGSV") || nmea.startsWith("$GNGSV")) {
+					_parseGSV(nmea);
+				}
+				nmea = "";
+			} else {
+				nmea += c;
+			}
 		}
 
 		// Case where the gps as an issue and doesn't work properly.
