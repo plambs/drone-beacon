@@ -42,6 +42,18 @@ esp_err_t esp_wifi_80211_tx(wifi_interface_t ifx, const void *buffer, int len, b
 
 #define BEACON_ID_FULL_LENGTH 31
 
+#define WANTED_SATELLITES 4 // Value must be equal or higher to be valid
+#define WANTED_PRECISION 2.0 // Value must be lower than that to be valid
+#define LOG_PERIOD_MS 1000 // print log every second
+#define DELAY_BEFORE_RELOOPING_MS 100 // ms
+
+// Hardware debug define
+#define DEBUG_DISPLAY_NMEA_SENTENCE 0
+#define DEBUG_DISPLAY_RAW_NMEA_RECEIVED_FROM_GPS 0
+#define DEBUG_DISPLAY_GPS_DATA 0
+#define DEBUG_DISPLAY_HOME_STATUS 0
+#define DEBUG_DISPLAY_BEACON_PACKET 0
+
 TinyGPSPlus gps;
 droneIDFR drone_idfr;
 
@@ -356,15 +368,19 @@ void setup()
     //check if Tansmit power is at his max (20 dBm -> 100mW)
 	int8_t P1 = 0;
     esp_wifi_get_max_tx_power(&P1);
-    printf("Tx power Value (dBm)=%f", (P1*0.25));
+    printf("Tx power Value (dBm)=%f\n", (P1*0.25));
     if(P1>77) {
 		_blink_led(10, 20);
     }
 }
 
+#if DEBUG_DISPLAY_NMEA_SENTENCE
+#define DEBUG_DISPLAY_DETAILS_SAT_SNR 0
 static void _parseGSV(String sentence) {
 	int fieldIndex = 0;
 	int satellitesInView = 0;
+	uint16_t snr_worse = 99;
+	uint16_t snr_best = 0;
 
 	char *token;
 	char buffer[120];
@@ -375,23 +391,68 @@ static void _parseGSV(String sentence) {
 	while (token != NULL) {
 		if (fieldIndex == 3) {
 			satellitesInView = atoi(token);
-			Serial.print("Satellites in view: ");
+#if DEBUG_DISPLAY_DETAILS_SAT_SNR
+			Serial.print("");
 			Serial.println(satellitesInView);
+#endif
 		}
 
 		// SNR fields are every 4th after index 4
 		if (fieldIndex >= 7 && ((fieldIndex - 7) % 4 == 0)) {
 			int snr = atoi(token);
 			if (snr > 0) {
+#if DEBUG_DISPLAY_DETAILS_SAT_SNR
 				Serial.print("SNR: ");
 				Serial.println(snr);
+#endif
+				// Remember SNR value if it higher than the best recorded
+				if((snr > snr_best) && (snr < 99))
+				{
+					snr_best = snr;
+				}
+
+				// Remember SNR value if it lower than the worst recorded
+				if(snr < snr_worse)
+				{
+					snr_worse = snr;
+				}
 			}
 		}
 
 		token = strtok(NULL, ",");
 		fieldIndex++;
 	}
+
+	// Print all data
+	if(snr_best == 0 || snr_worse == 99)
+	{
+		printf("Satellites in view: %d\n", satellitesInView);
+	}
+	else
+	{
+		printf("Satellites in view: %d, SNR, best: %ddb, worst: %ddb\n", satellitesInView, snr_best, snr_worse);
+	}
 }
+
+static void _parse_nmea_sentence(String nmea)
+{
+	// Print the sentence received
+#if DEBUG_DISPLAY_RAW_NMEA_RECEIVED_FROM_GPS
+	Serial.println(nmea);
+#endif
+
+	// Parse GSV (satellites in view and SNR)
+	if (nmea.startsWith("$GPGSV") || nmea.startsWith("$GNGSV")) {
+		_parseGSV(nmea);
+	}
+
+	// Detect jamming
+	// Jamming detected == $PMTKSPF,3*58
+	if (nmea.startsWith("$PMTKSPF,3*58")) {
+		Serial.println("Interference detected!");
+	}
+}
+#endif
 
 /**
  * Début du code principal. C'est une boucle infinie.
@@ -402,9 +463,11 @@ void loop()
 
 	bool has_set_home = false;
 	double home_alt = 0.0;
-	uint64_t gpsSec = 0;
-	uint64_t beaconSec = 0;
 	bool stat_led = false;
+
+#if DEBUG_DISPLAY_GPS_DATA
+	uint64_t gpsSec = 0;
+#endif
 
 	while(1)
 	{
@@ -414,16 +477,16 @@ void loop()
 			char c = Serial2.read();
 			gps.encode(c);
 
+#if DEBUG_DISPLAY_NMEA_SENTENCE
+			// Debug path to see all the sentences and manually decode some of them outside TinyGPS++
 			static String nmea = "";
 			if (c == '\n') {
-				Serial.println(nmea);
-				if (nmea.startsWith("$GPGSV") || nmea.startsWith("$GNGSV")) {
-					_parseGSV(nmea);
-				}
+				_parse_nmea_sentence(nmea);
 				nmea = "";
 			} else {
 				nmea += c;
 			}
+#endif
 		}
 
 		// Case where the gps as an issue and doesn't work properly.
@@ -435,7 +498,9 @@ void loop()
 			_set_led_state(LED_OFF);
 
 			// Wait some time then retry.
-			delay(500);
+			delay(DELAY_BEFORE_RELOOPING_MS);
+
+			// TODO add reset of the gps module
 
 			// Jump to the next interation of the main loop.
 			continue;
@@ -443,10 +508,11 @@ void loop()
 
 		// Manage the invalid GPS position case.
 		if (!gps.location.isValid()) {
-			if (millis() - gpsMap > 1000) {
+			if (millis() - gpsMap > LOG_PERIOD_MS) {
 				// Blink the led once
 				_set_led_state(LED_ON);
 
+#if DEBUG_DISPLAY_GPS_DATA
 				// Print info logs
 				// Print the total number of characters received by the object.
 				// Print the number of $GPRMC or $GPGGA sentences that had a fix.
@@ -458,6 +524,7 @@ void loop()
 				printf("Failed checksum: %ld\n", gps.failedChecksum());
 				printf("Passed checksum: %ld\n", gps.passedChecksum());
 				printf("satellites: %lu\n\n", gps.satellites.value());
+#endif
 
 				// Keep track of the elapsed time.
 				gpsMap = millis();
@@ -467,16 +534,32 @@ void loop()
 				_set_led_state(LED_OFF);
 			}
 
-			// Jump to the next interation of the main loop.
+			// Jump to the next interation of the main loop but wait 100ms before doing so to let the system doing something else.
+			delay(DELAY_BEFORE_RELOOPING_MS);
 			continue;
 		}
 
+#if DEBUG_DISPLAY_HOME_STATUS
+		static uint64_t home_time = 0;
+		if (millis() - home_time > LOG_PERIOD_MS)
+		{
+			printf("Home is set: %s, satellites value: %ld (wanted: %d), hdop: %f (wanted: %f)\n",
+				has_set_home ? "YES" : "NO",
+				gps.satellites.value(),
+				WANTED_SATELLITES,
+				gps.hdop.hdop(),
+				WANTED_PRECISION);
+
+			home_time = millis();
+		}
+#endif
+
 		// GPS is valid, set the home position when the precision is high enough
-		if (!has_set_home && gps.satellites.value() > 6 && gps.hdop.hdop() < 2.0) {
+		if (!has_set_home && gps.satellites.value() >= WANTED_SATELLITES && gps.hdop.hdop() <= WANTED_PRECISION) {
 			printf("Setting Home Position");
 			has_set_home = true;
 			home_alt = gps.altitude.meters();
-			printf("Altitude de départ=%s", String(home_alt).c_str());
+			printf("Altitude de départ=%s\n", String(home_alt).c_str());
 			drone_idfr.set_home_position(gps.location.lat(), gps.location.lng(), gps.altitude.meters());
 
 			_set_led_state(LED_ON);
@@ -488,14 +571,14 @@ void loop()
 		drone_idfr.set_ground_speed(gps.speed.mps());
 		drone_idfr.set_heigth(gps.altitude.meters() - home_alt);
 
-#if 1
+#if DEBUG_DISPLAY_GPS_DATA
 		// Display gps data in the serial console for debug purpose
-		if (millis() - gpsMap > 1000) {
+		if (millis() - gpsMap > LOG_PERIOD_MS) {
 
+			printf("\nPositioning (%llu)\n", gpsSec++);
+			printf("satellites with fix:%lu\n", gps.satellites.value());
 			printf("UTC:%d:%d:%d\n", gps.time.hour(), gps.time.minute(), gps.time.second());
-			printf("LNG:%.4f\n", gps.location.lng());
-			printf("LAT:%.4f\n", gps.location.lat());
-			printf("satellites:%lu\n", gps.satellites.value());
+			printf("LNG:%.4f - LAT:%.4f\n", gps.location.lng(), gps.location.lat());
 
 			gpsMap = millis();
 		}
@@ -509,7 +592,19 @@ void loop()
 		 *  - et dans le cas où les données GPS sont nouvelles.
 		 */
 		if (drone_idfr.has_home_set() && drone_idfr.time_to_send()) {
-			printf("Send beacon");
+			// Compute elapsed time and save new actual reference time.
+			static uint64_t beaconSec = 0;
+			float time_elapsed = (float(millis() - beaconSec) / 1000);
+			beaconSec = millis();
+
+			// Print the beacon data that we use for the frame
+			printf("Send beacon -> last beacon: %fs, send reason: %s, distance travel: %f m, speed: %f km/h\n",
+				time_elapsed,
+				drone_idfr.has_pass_distance() ? "distance" : "time",
+				drone_idfr.get_distance_from_last_position_sent(),
+				drone_idfr.get_ground_speed_kmh()
+			);
+
 			// toggle the LED to see beacon sended
 			if (stat_led) {
 				_set_led_state(LED_OFF);
@@ -520,20 +615,6 @@ void loop()
 				stat_led = true;
 			}
 
-			// Compute elapsed time and save new actual reference time.
-			float time_elapsed = (float(millis() - beaconSec) / 1000);
-			beaconSec = millis();
-
-#if 1
-			// Print the beacon data that we use for the frame
-			printf("%fs Send beacon: %s with %fm Speed=%f",
-				time_elapsed,
-				drone_idfr.has_pass_distance() ? "Distance" : "Time",
-				drone_idfr.get_distance_from_last_position_sent(),
-				drone_idfr.get_ground_speed_kmh()
-			);
-#endif
-
 			// write new SSID into beacon frame
 			const size_t ssid_size = (sizeof(ssid)/sizeof(*ssid)) - 1; // remove trailling null termination
 			beaconPacket[40] = ssid_size;  // set size
@@ -542,13 +623,12 @@ void loop()
 
 			// Generate the identification frame to send over wifi.
 			const uint8_t to_send = drone_idfr.generate_beacon_frame(beaconPacket, header_size);  // override the null termination
-																								  // Décommenter ce block pour voir la trame entière sur le port usb
 
-#if 0
+#if DEBUG_DISPLAY_BEACON_PACKET
 			// Debug log to show the id frame in the serial console
 			printf("beaconPacket : ");
 			for (auto i=0; i<sizeof(beaconPacket);i++) {
-				printd("0x%X ", beaconPacket[i]);
+				printf("0x%X ", beaconPacket[i]);
 			}
 			printf("\n");
 #endif
@@ -559,5 +639,8 @@ void loop()
 			// After sending we reset the send condition.
 			drone_idfr.set_last_send();
 		}
+
+		// Wait 100ms before going to the next iteration of the loop
+		delay(DELAY_BEFORE_RELOOPING_MS);
 	}
 }
