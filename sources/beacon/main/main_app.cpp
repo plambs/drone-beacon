@@ -45,7 +45,7 @@ esp_err_t esp_wifi_80211_tx(wifi_interface_t ifx, const void *buffer, int len, b
 #define WANTED_SATELLITES 4 // Value must be equal or higher to be valid
 #define WANTED_PRECISION 2.0 // Value must be lower than that to be valid
 #define LOG_PERIOD_MS 1000 // print log every second
-#define DELAY_BEFORE_RELOOPING_MS 100 // ms
+#define DELAY_BEFORE_RELOOPING_MS 10 // ms
 
 // Hardware debug define
 #define DEBUG_DISPLAY_NMEA_SENTENCE 0
