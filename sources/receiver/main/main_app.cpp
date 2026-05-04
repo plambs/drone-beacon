@@ -9,6 +9,7 @@
 #include <esp_wifi.h>
 #include <esp_event.h>
 #include <nvs_flash.h>
+#include <esp_netif.h>
 #include "lvgl.h"
 
 String trame;
@@ -69,35 +70,30 @@ typedef struct  {
   uint8_t sa;
   uint8_t bssid;
   int16_t seqctl;
-  unsigned char payload[];
+  unsigned char *payload;
 } __attribute__((packed)) WifiMgmtHdr;
 
 typedef struct {
   WifiMgmtHdr hdr;
-  uint8_t payload[0];
+  uint8_t *payload;
 } wifi_ieee80211_packet_t;
 
-static esp_err_t event_handler(void *ctx, system_event_t *event);
 static void wifi_sniffer_init(void);
 static void wifi_sniffer_set_channel(uint8_t channel);
 static const char *wifi_sniffer_packet_type2str(wifi_promiscuous_pkt_type_t type);
 static void wifi_sniffer_packet_handler(void *buff, wifi_promiscuous_pkt_type_t type);
-
-esp_err_t event_handler(void *ctx, system_event_t *event)
-{
-  return ESP_OK;
-}
+void beaconCallback(void* buf, wifi_promiscuous_pkt_type_t type);
 
 void wifi_sniffer_init(void)
 {
   nvs_flash_init();
   esp_netif_init();
-  ESP_ERROR_CHECK( esp_event_loop_run(event_handler, NULL) );
+  ESP_ERROR_CHECK(esp_event_loop_create_default());
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-  ESP_ERROR_CHECK( esp_wifi_init(&cfg) );
-  ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM) );
-  ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_NULL) );
-  ESP_ERROR_CHECK( esp_wifi_start() );
+  ESP_ERROR_CHECK(esp_wifi_init(&cfg) );
+  ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM) );
+  ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_NULL) );
+  ESP_ERROR_CHECK(esp_wifi_start() );
   esp_wifi_set_promiscuous(true);
   esp_wifi_set_promiscuous_rx_cb(&beaconCallback);
   
