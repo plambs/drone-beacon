@@ -532,6 +532,8 @@ void loop()
 				// Add a little delay before turning off the led.
 				delay(10);
 				_set_led_state(LED_OFF);
+
+				printf("Position unknown\n");
 			}
 
 			// Jump to the next interation of the main loop but wait 100ms before doing so to let the system doing something else.
@@ -556,10 +558,9 @@ void loop()
 
 		// GPS is valid, set the home position when the precision is high enough
 		if (!has_set_home && gps.satellites.value() >= WANTED_SATELLITES && gps.hdop.hdop() <= WANTED_PRECISION) {
-			printf("Setting Home Position");
 			has_set_home = true;
 			home_alt = gps.altitude.meters();
-			printf("Altitude de départ=%s\n", String(home_alt).c_str());
+			printf("Setting home position, start altitude: %fm\n", home_alt);
 			drone_idfr.set_home_position(gps.location.lat(), gps.location.lng(), gps.altitude.meters());
 
 			_set_led_state(LED_ON);
