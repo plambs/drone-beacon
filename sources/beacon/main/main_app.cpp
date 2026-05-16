@@ -21,6 +21,7 @@
 #include <TinyGPS++.h>
 #include <WiFi.h>
 
+#include "led.h"
 #include "config.h"
 #include "droneID_FR.h"
 
@@ -33,7 +34,6 @@ esp_err_t esp_wifi_80211_tx(wifi_interface_t ifx, const void *buffer, int len, b
 #define DIP_SWITCH_2_PIN 14
 #define DIP_SWITCH_3_PIN 27
 #define DIP_SWITCH_4_PIN 26
-#define LED_PIN 2
 
 #define GPS_BAUDRATE_DEFAULT 9600
 #define GPS_BAUDRATE_115200 115200
@@ -88,11 +88,6 @@ uint8_t beaconPacket[MAX_BEACON_SIZE] = {
                                                         // 41-XX: SSID (max 32)
 };
 
-typedef enum {
-	LED_OFF = 0,
-	LED_ON = 1,
-} led_state;
-
 /*
 Pour les types de modèles, les groupes sont les suivants :
  - Groupe 1 : aérostat captif / aéromodèle de vol circulaire / aéromodèle de vol libre / montgolfière
@@ -130,38 +125,6 @@ typedef struct {
 	model_mass mass;
 	char mass_str[4];
 } beacon_data;
-
-static void _set_led_state(led_state state)
-{
-	switch(state)
-	{
-		case LED_OFF:
-            digitalWrite(LED_PIN, HIGH);
-			break;
-		case LED_ON:
-            digitalWrite(LED_PIN, LOW);
-			break;
-		default:
-            printf("Error: wrong led state");
-			break;
-	}
-}
-
-static void _blink_led(uint8_t nb_blink, uint16_t delay_ms)
-{
-	_set_led_state(LED_OFF);
-	delay(delay_ms);
-	for(int i = 0; i < nb_blink; i++)
-	{
-		if((i % 2) == 0)
-		{
-			_set_led_state(LED_ON);
-		} else {
-			_set_led_state(LED_OFF);
-		}
-		delay(delay_ms);
-	}
-}
 
 static model_group _get_model_group(void)
 {
@@ -306,16 +269,17 @@ void setup()
     pinMode(DIP_SWITCH_2_PIN, INPUT_PULLDOWN);
     pinMode(DIP_SWITCH_3_PIN, INPUT_PULLDOWN);
     pinMode(DIP_SWITCH_4_PIN, INPUT_PULLDOWN);
-    pinMode(LED_PIN, OUTPUT);
+
+	led_init();
 
 	// Let gps time to init
-	delay(1000);
+	delay(2000);
 
     // Init Quectel L96 gps module.
 	// Start communication and change baudrate
     Serial2.begin(GPS_BAUDRATE_DEFAULT, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
 	Serial2.println("$PMTK251,115200*1F"); // Set baudrate to 115200bauds
-	delay(300); // Let time to the gps module to change its baudrate.
+	delay(500); // Let time to the gps module to change its baudrate.
 	Serial2.end();
 
 	// Restart communication with gps using the new baudrate
@@ -370,7 +334,7 @@ void setup()
     esp_wifi_get_max_tx_power(&P1);
     printf("Tx power Value (dBm)=%f\n", (P1*0.25));
     if(P1>77) {
-		_blink_led(10, 20);
+		led_blink(1);
     }
 }
 
@@ -463,7 +427,6 @@ void loop()
 
 	bool has_set_home = false;
 	double home_alt = 0.0;
-	bool stat_led = false;
 
 #if DEBUG_DISPLAY_GPS_DATA
 	uint64_t gpsSec = 0;
@@ -495,7 +458,7 @@ void loop()
 			printf("No GPS detected\n");
 
 			// Turn off the led when the beacon is not working.
-			_set_led_state(LED_OFF);
+			led_blink(3);
 
 			// Wait some time then retry.
 			delay(DELAY_BEFORE_RELOOPING_MS);
@@ -510,7 +473,7 @@ void loop()
 		if (!gps.location.isValid()) {
 			if (millis() - gpsMap > LOG_PERIOD_MS) {
 				// Blink the led once
-				_set_led_state(LED_ON);
+				led_set_state(E_LED_ON);
 
 #if DEBUG_DISPLAY_GPS_DATA
 				// Print info logs
@@ -531,7 +494,7 @@ void loop()
 
 				// Add a little delay before turning off the led.
 				delay(10);
-				_set_led_state(LED_OFF);
+				led_blink(2);
 
 				printf("Position unknown\n");
 			}
@@ -563,7 +526,7 @@ void loop()
 			printf("Setting home position, start altitude: %fm\n", home_alt);
 			drone_idfr.set_home_position(gps.location.lat(), gps.location.lng(), gps.altitude.meters());
 
-			_set_led_state(LED_ON);
+			led_set_state(E_LED_ON);
 		}
 
 		// Send the gps data to the drone_idfr lib to format them.
@@ -607,14 +570,7 @@ void loop()
 			);
 
 			// toggle the LED to see beacon sended
-			if (stat_led) {
-				_set_led_state(LED_OFF);
-				stat_led = false;
-			}
-			else {
-				_set_led_state(LED_ON);
-				stat_led = true;
-			}
+			led_toggle_state();
 
 			// write new SSID into beacon frame
 			const size_t ssid_size = (sizeof(ssid)/sizeof(*ssid)) - 1; // remove trailling null termination

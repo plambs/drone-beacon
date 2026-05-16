@@ -1,3 +1,3 @@
-idf_component_register(SRCS "main_app.cpp"
+idf_component_register(SRCS "main_app.cpp" "led.cpp"
                     PRIV_REQUIRES spi_flash arduino TinyGPS++ droneID
                     INCLUDE_DIRS "")
