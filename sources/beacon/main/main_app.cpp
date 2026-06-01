@@ -188,7 +188,7 @@ void app_main(void)
 			continue;
 		}
 
-		// TODO print number satelite, fix, home status and if data must be send
+		// print number satelite, fix, home status and if data must be send
 		printf("sat view: %d, sat fix: %d, hdop: %0.2f, home set: %d\n",
 			nmea_get_satellites_in_view(),
 			gps_get_satellites(),

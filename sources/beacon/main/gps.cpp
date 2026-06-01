@@ -113,7 +113,7 @@ void gps_configure()
 	Serial2.println("$PMTK514,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0*2F"); // Configure message output, keep only GGA and RMC and GSV, disable VTG, GSA and GLL.
 	Serial2.println("$PMTK353,1,1,1,0,0*2A"); // Search for GPS + Glonass + Galileo satellites.
 	Serial2.println("$PMTK352,0*2A"); // Stop QZSS regional positioning service.
-	Serial2.println("$PMTK314,0,1,0,1,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0*28");
+	Serial2.println("$PMTK314,0,1,0,1,1,1,0,0,1,0,0,0,0,0,0,0,0,0,0*29");
 	Serial2.println("$PMTK286,1*23"); // Enable AIC function.
 
     printf("Done\n");

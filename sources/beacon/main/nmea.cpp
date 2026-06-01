@@ -2,9 +2,12 @@
 #include "nmea.h"
 #include "config.h"
 
-static uint16_t satellites_in_view = 0;
+static uint16_t _siv_gps = 0;
+static uint16_t _siv_glo = 0;
+static uint16_t _siv_gal = 0;
+static uint16_t _siv_gn  = 0;
 
-static void _parse_gsv(String sentence) {
+static void _parse_gsv(String sentence, uint16_t *siv_bucket) {
 	int fieldIndex = 0;
 	uint16_t snr_worse = 99;
 	uint16_t snr_best = 0;
@@ -17,24 +20,17 @@ static void _parse_gsv(String sentence) {
 
 	while (token != NULL) {
 		if (fieldIndex == 3) {
-			satellites_in_view = atoi(token);
+			*siv_bucket = atoi(token);
 		}
 
-		// SNR fields are every 4th after index 4
+		// SNR fields are every 4th after index 7
 		if (fieldIndex >= 7 && ((fieldIndex - 7) % 4 == 0)) {
 			int snr = atoi(token);
 			if (snr > 0) {
-				// Remember SNR value if it higher than the best recorded
 				if((snr > snr_best) && (snr < 99))
-				{
 					snr_best = snr;
-				}
-
-				// Remember SNR value if it lower than the worst recorded
 				if(snr < snr_worse)
-				{
 					snr_worse = snr;
-				}
 			}
 		}
 
@@ -43,32 +39,25 @@ static void _parse_gsv(String sentence) {
 	}
 
 #if DEBUG_DISPLAY_SATELLITE_AND_SNR_DETAILS
-	// Print all data
 	if(snr_best == 0 || snr_worse == 99)
-	{
-		printf("Satellites in view: %d\n", satellites_in_view);
-	}
+		printf("Satellites in view: %d\n", *siv_bucket);
 	else
-	{
-		printf("Satellites in view: %d, SNR, best: %ddb, worst: %ddb\n", satellites_in_view, snr_best, snr_worse);
-	}
+		printf("Satellites in view: %d, SNR, best: %ddb, worst: %ddb\n", *siv_bucket, snr_best, snr_worse);
 #endif
 }
 
 static void _parse_nmea_sentence(String nmea)
 {
-	// Print the sentence received
 #if DEBUG_DISPLAY_RAW_NMEA_RECEIVED_FROM_GPS
 	Serial.println(nmea);
 #endif
 
-	// Parse GSV (satellites in view and SNR)
-	if (nmea.startsWith("$GPGSV") || nmea.startsWith("$GNGSV")) {
-		_parse_gsv(nmea);
-	}
+	// Parse GSV per constellation — each has its own counter to avoid overwriting
+	if      (nmea.startsWith("$GPGSV")) _parse_gsv(nmea, &_siv_gps);
+	else if (nmea.startsWith("$GLGSV")) _parse_gsv(nmea, &_siv_glo);
+	else if (nmea.startsWith("$GAGSV")) _parse_gsv(nmea, &_siv_gal);
+	else if (nmea.startsWith("$GNGSV")) _parse_gsv(nmea, &_siv_gn);
 
-	// Detect jamming
-	// Jamming detected == $PMTKSPF,3*58
 	if (nmea.startsWith("$PMTKSPF,3*58")) {
 		printf("Interference detected!\n");
 	}
@@ -76,7 +65,10 @@ static void _parse_nmea_sentence(String nmea)
 
 uint16_t nmea_get_satellites_in_view(void)
 {
-	return satellites_in_view;
+	// Use combined GNSS sentence if available, otherwise sum per-constellation counts
+	if (_siv_gn > 0)
+		return _siv_gn;
+	return _siv_gps + _siv_glo + _siv_gal;
 }
 
 void nmea_encode(char c)
