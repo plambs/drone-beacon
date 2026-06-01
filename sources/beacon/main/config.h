@@ -37,7 +37,7 @@
 #define WANTED_PRECISION 3.0 // Value must be lower than that to be valid
 #define LOG_PERIOD_MS 1000 // print log every second
 #define DELAY_BEFORE_RELOOPING_MS 10 // ms
-#define SLEEP_MODE_ENABLED 0
+#define SLEEP_MODE_ENABLED 1
 #define DELAY_BEFORE_RELOOPING_NO_SLEEP_MS 500 //ms
 
 // Hardware debug define

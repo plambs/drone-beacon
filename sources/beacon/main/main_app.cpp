@@ -103,7 +103,7 @@ static void _go_to_sleep()
 	}
 
 	// Stop wifi
-	//esp_wifi_stop();
+	esp_wifi_stop();
 
 #if DEBUG_DISPLAY_SLEEP_LOGS
 	printf("Entering light sleep...\n");
@@ -141,7 +141,7 @@ static void _go_to_sleep()
 #endif
 
 	// Restart wifi
-	//esp_wifi_start();
+	esp_wifi_start();
 }
 #endif
 
