@@ -46,6 +46,16 @@ idf.py build
 idf.py flash
 ```
 
+Balise status code
+|Status|Fast blink|Slow blink|
+|---|---|---|
+|Reset GPS|4||
+|No position|3||
+|Position but no home (not enough precision)|2||
+|Trasmiting beacon (beacon is working)||1|
+
+Initialisation time take at least 2 minute in ideal condition
+
 ### Receiver
 
 ```
