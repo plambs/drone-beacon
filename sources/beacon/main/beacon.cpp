@@ -1,9 +1,25 @@
-#include <Arduino.h>
 #include "beacon.h"
 #include "config.h"
 #include "led.h"
+
+// droneID_FR.h was written for Arduino and uses these without including them.
+// Provide the missing standard headers and macros before including the library.
+#include <cmath>
+#include <cstring>
+#ifndef DEG_TO_RAD
+#define DEG_TO_RAD 0.017453292519943295
+#endif
+#ifndef radians
+#define radians(deg) ((deg) * DEG_TO_RAD)
+#endif
+#ifndef sq
+#define sq(x) ((x) * (x))
+#endif
+
 #include "droneID_FR.h"
 #include "esp_netif.h"
+#include "driver/gpio.h"
+#include "esp_timer.h"
 
 #define DIP_SWITCH_1_PIN 13
 #define DIP_SWITCH_2_PIN 14
@@ -59,18 +75,16 @@ uint8_t beaconPacket[MAX_BEACON_SIZE] = {
 static model_group _get_model_group(void)
 {
 	uint8_t group = 0;
-    group = group | (uint8_t)(digitalRead(DIP_SWITCH_1_PIN));
-    group = group | (uint8_t)(digitalRead(DIP_SWITCH_2_PIN) << 1);
-
+	group |= (uint8_t)gpio_get_level((gpio_num_t)DIP_SWITCH_1_PIN);
+	group |= (uint8_t)(gpio_get_level((gpio_num_t)DIP_SWITCH_2_PIN) << 1);
 	return (model_group)group;
 }
 
 static model_mass _get_model_mass(void)
 {
 	uint8_t mass = 0;
-    mass = mass | (uint8_t)(digitalRead(DIP_SWITCH_3_PIN));
-    mass = mass | (uint8_t)(digitalRead(DIP_SWITCH_4_PIN) << 1);
-
+	mass |= (uint8_t)gpio_get_level((gpio_num_t)DIP_SWITCH_3_PIN);
+	mass |= (uint8_t)(gpio_get_level((gpio_num_t)DIP_SWITCH_4_PIN) << 1);
 	return (model_mass)mass;
 }
 
@@ -157,8 +171,9 @@ static void _display_beacon_data()
 {
 	// Compute elapsed time and save new actual reference time.
 	static uint64_t beaconSec = 0;
-	float time_elapsed = (float(millis() - beaconSec) / 1000);
-	beaconSec = millis();
+	uint64_t now = (uint64_t)(esp_timer_get_time() / 1000LL);
+	float time_elapsed = (float)(now - beaconSec) / 1000.0f;
+	beaconSec = now;
 
 	// Print the beacon data that we use for the frame
 	printf("Send beacon -> last beacon: %fs, send reason: %s, distance travel: %f m, speed: %f km/h\n",
@@ -243,11 +258,15 @@ void beacon_send_data()
 
 void beacon_init()
 {
-	// Set all gpio
-    pinMode(DIP_SWITCH_1_PIN, INPUT_PULLDOWN);
-    pinMode(DIP_SWITCH_2_PIN, INPUT_PULLDOWN);
-    pinMode(DIP_SWITCH_3_PIN, INPUT_PULLDOWN);
-    pinMode(DIP_SWITCH_4_PIN, INPUT_PULLDOWN);
+	// Set all DIP switch GPIOs as inputs with pull-down
+	gpio_config_t dip_conf = {};
+	dip_conf.pin_bit_mask = (1ULL << DIP_SWITCH_1_PIN) | (1ULL << DIP_SWITCH_2_PIN)
+	                      | (1ULL << DIP_SWITCH_3_PIN) | (1ULL << DIP_SWITCH_4_PIN);
+	dip_conf.mode         = GPIO_MODE_INPUT;
+	dip_conf.pull_up_en   = GPIO_PULLUP_DISABLE;
+	dip_conf.pull_down_en = GPIO_PULLDOWN_ENABLE;
+	dip_conf.intr_type    = GPIO_INTR_DISABLE;
+	gpio_config(&dip_conf);
 
 	// Init the wifi, create an access point that do nothing.
     printf("Starting AP\n");

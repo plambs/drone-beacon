@@ -4,46 +4,83 @@
 #include "nmea.h"
 #include "beacon.h"
 
-#define GPS_INIT_TIME_MS 1500
-#define GPS_RESET_TRIGGER_DELAY_MS 100
-#define GPS_BAUDRATE_CHANGE_DELAY_MS 300
-#define GPS_BAUDRATE_DEFAULT 9600
-#define GPS_BAUDRATE_115200 115200
-#define GPS_RX_PIN 16
-#define GPS_TX_PIN 17
-#define GPS_RESET_PIN 18
+#include "driver/uart.h"
+#include "driver/gpio.h"
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include <string.h>
+
+#define GPS_INIT_TIME_MS             1500
+#define GPS_RESET_TRIGGER_DELAY_MS    100
+#define GPS_BAUDRATE_CHANGE_DELAY_MS  300
+#define GPS_BAUDRATE_DEFAULT         9600
+#define GPS_BAUDRATE_115200        115200
+#define GPS_RX_PIN                     16
+#define GPS_TX_PIN                     17
+#define GPS_RESET_PIN           GPIO_NUM_18
 
 static TinyGPSPlus gps;
 static bool has_set_home = false;
 static uint64_t time_since_last_reset = 0;
 
-static void _print_gps_firmware_version()
+static uint64_t _millis(void)
 {
-	String line = "";
-	unsigned long start_time = millis();
+	return (uint64_t)(esp_timer_get_time() / 1000LL);
+}
 
-	// Flush old data
-    while (Serial2.available())
-    {
-        Serial2.read();
-    }
+static void _uart2_begin(int baud_rate)
+{
+	uart_config_t config;
+	config.baud_rate           = baud_rate;
+	config.data_bits           = UART_DATA_8_BITS;
+	config.parity              = UART_PARITY_DISABLE;
+	config.stop_bits           = UART_STOP_BITS_1;
+	config.flow_ctrl           = UART_HW_FLOWCTRL_DISABLE;
+	config.rx_flow_ctrl_thresh = 0;
+	config.source_clk          = UART_SCLK_DEFAULT;
 
-	Serial2.println("$PMTK605*31");
+	if (!uart_is_driver_installed(UART_NUM_2)) {
+		uart_driver_install(UART_NUM_2, 1024, 0, 0, NULL, 0);
+	}
+	uart_param_config(UART_NUM_2, &config);
+	uart_set_pin(UART_NUM_2, GPS_TX_PIN, GPS_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+}
 
-	while (millis() - start_time < 200)
+static void _uart2_end(void)
+{
+	uart_driver_delete(UART_NUM_2);
+}
+
+static void _uart2_println(const char *str)
+{
+	uart_write_bytes(UART_NUM_2, str, strlen(str));
+	uart_write_bytes(UART_NUM_2, "\r\n", 2);
+}
+
+static void _print_gps_firmware_version(void)
+{
+	char line[128] = {0};
+	int line_len = 0;
+
+	// Flush stale data
+	uint8_t dummy;
+	while (uart_read_bytes(UART_NUM_2, &dummy, 1, 0) > 0);
+
+	_uart2_println("$PMTK605*31");
+
+	uint64_t deadline = (uint64_t)esp_timer_get_time() + 200000ULL; // 200 ms
+	while ((uint64_t)esp_timer_get_time() < deadline)
 	{
-		while (Serial2.available())
+		uint8_t c;
+		if (uart_read_bytes(UART_NUM_2, &c, 1, pdMS_TO_TICKS(1)) > 0)
 		{
-			char c = Serial2.read();
-
-			if (c == '\n')
-			{
-				printf("Quectel L96-M33 fw version: %s\n",line.c_str());
+			if (c == '\n') {
+				printf("Quectel L96-M33 fw version: %s\n", line);
 				return;
-			}
-			else if (c != '\r')
-			{
-				line += c;
+			} else if (c != '\r' && line_len < (int)(sizeof(line) - 1)) {
+				line[line_len++] = c;
 			}
 		}
 	}
@@ -52,11 +89,12 @@ static void _print_gps_firmware_version()
 }
 
 #if DEBUG_DISPLAY_HOME_STATUS
-static void _display_home_status()
+static void _display_home_status(void)
 {
 	static uint64_t home_time = 0;
+	uint64_t now = _millis();
 
-	if (millis() - home_time > LOG_PERIOD_MS)
+	if (now - home_time > LOG_PERIOD_MS)
 	{
 		printf("Home is set: %s, satellites value: %ld (wanted: %d), hdop: %f (wanted: %f)\n",
 				has_set_home ? "YES" : "NO",
@@ -64,121 +102,98 @@ static void _display_home_status()
 				WANTED_SATELLITES,
 				gps.hdop.hdop(),
 				WANTED_PRECISION);
-
-		home_time = millis();
+		home_time = now;
 	}
 }
 #endif
 
 #if DEBUG_DISPLAY_GPS_DATA
-static void _display_gps_data()
+static void _display_gps_data(void)
 {
 	static uint64_t gpsSec = 0;
 	static uint64_t gpsMap = 0;
+	uint64_t now = _millis();
 
-	// Display gps data in the serial console for debug purpose
-	if (millis() - gpsMap > LOG_PERIOD_MS) {
-
+	if (now - gpsMap > LOG_PERIOD_MS) {
 		printf("\nPositioning (%llu)\n", gpsSec++);
 		printf("satellites with fix:%lu\n", gps.satellites.value());
 		printf("UTC:%d:%d:%d\n", gps.time.hour(), gps.time.minute(), gps.time.second());
 		printf("LNG:%.4f - LAT:%.4f\n", gps.location.lng(), gps.location.lat());
-
-		gpsMap = millis();
+		gpsMap = now;
 	}
 }
 #endif
 
-
-void gps_configure()
+void gps_configure(void)
 {
-    // Init Quectel L96 gps module.
-	// Start communication and change baudrate
-	Serial2.println("$PMTK251,115200*1F"); // Set baudrate to 115200bauds
-	delay(GPS_BAUDRATE_CHANGE_DELAY_MS); // Let time to the gps module to change its baudrate.
-	Serial2.end();
+	// Change GPS baudrate to 115200
+	_uart2_println("$PMTK251,115200*1F");
+	vTaskDelay(pdMS_TO_TICKS(GPS_BAUDRATE_CHANGE_DELAY_MS));
+	_uart2_end();
 
-	// Restart communication with gps using the new baudrate
-    Serial2.begin(GPS_BAUDRATE_115200, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+	// Restart at new baudrate
+	_uart2_begin(GPS_BAUDRATE_115200);
 
 	_print_gps_firmware_version();
 
-	// Send the rest of the gps configuration
-    printf("Configure GPS module: ");
-	Serial2.println("$PMTK255,1*2D"); // Enable PPS
-	Serial2.println("$PMTK285,4,100*38"); // Set pps pulse width to always, and 100ms.
-	Serial2.println("$PMTK886,0*28"); // Normal navigation mode
-	Serial2.println("$PMTK869,1,0*34"); // Disable EASY message
-	Serial2.println("$PMTK838,1*2C"); // Enable jamming detection
-	Serial2.println("$PMTK514,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0*2F"); // Configure message output, keep only GGA and RMC and GSV, disable VTG, GSA and GLL.
-	Serial2.println("$PMTK353,1,1,1,0,0*2A"); // Search for GPS + Glonass + Galileo satellites.
-	Serial2.println("$PMTK352,0*2A"); // Stop QZSS regional positioning service.
-	Serial2.println("$PMTK314,0,1,0,1,1,1,0,0,1,0,0,0,0,0,0,0,0,0,0*29");
-	Serial2.println("$PMTK286,1*23"); // Enable AIC function.
-
-    printf("Done\n");
+	printf("Configure GPS module: ");
+	_uart2_println("$PMTK255,1*2D");                                           // Enable PPS
+	_uart2_println("$PMTK285,4,100*38");                                       // PPS always on, 100ms pulse
+	_uart2_println("$PMTK886,0*28");                                           // Normal navigation mode
+	_uart2_println("$PMTK869,1,0*34");                                         // Disable EASY
+	_uart2_println("$PMTK838,1*2C");                                           // Enable jamming detection
+	_uart2_println("$PMTK514,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0*2F");    // GGA + RMC + GSV only
+	_uart2_println("$PMTK353,1,1,1,0,0*2A");                                  // GPS + GLONASS + Galileo
+	_uart2_println("$PMTK352,0*2A");                                           // Disable QZSS
+	_uart2_println("$PMTK314,0,1,0,1,1,1,0,0,1,0,0,0,0,0,0,0,0,0,0*29");    // RMC+GGA+GSA+GSV enabled
+	_uart2_println("$PMTK286,1*23");                                           // Enable AIC
+	printf("Done\n");
 }
 
-void _trigger_reset_pin(void)
+static void _trigger_reset_pin(void)
 {
 	printf("Trigger GPS module reset\n");
-
-	// Trigger reset by pulling down the reset pin
-	digitalWrite(GPS_RESET_PIN, LOW);
-	delay(GPS_RESET_TRIGGER_DELAY_MS);
-	digitalWrite(GPS_RESET_PIN, HIGH);
+	gpio_set_level(GPS_RESET_PIN, 0);
+	vTaskDelay(pdMS_TO_TICKS(GPS_RESET_TRIGGER_DELAY_MS));
+	gpio_set_level(GPS_RESET_PIN, 1);
 }
 
-void _init_gps(void)
+static void _init_gps(void)
 {
-	// Init the GPS serial to default baudrate
-    Serial2.begin(GPS_BAUDRATE_DEFAULT, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
-
-	// Let gps time to init
-	delay(GPS_INIT_TIME_MS);
-
-	// configure the gps
+	_uart2_begin(GPS_BAUDRATE_DEFAULT);
+	vTaskDelay(pdMS_TO_TICKS(GPS_INIT_TIME_MS));
 	gps_configure();
-
-	// Remember the actual time to check if the reset is needed later
-	time_since_last_reset = millis();
+	time_since_last_reset = _millis();
 }
 
-void gps_reset()
+void gps_reset(void)
 {
 	_trigger_reset_pin();
-
-	// Stop the gps serial connection before reinit
-	Serial2.end();
-
+	_uart2_end();
 	_init_gps();
 }
 
-void gps_init()
+void gps_init(void)
 {
-	// Fix the reset pin to HIGH
-    pinMode(GPS_RESET_PIN, OUTPUT);
-	digitalWrite(GPS_RESET_PIN, HIGH);
-
+	gpio_set_direction(GPS_RESET_PIN, GPIO_MODE_OUTPUT);
+	gpio_set_level(GPS_RESET_PIN, 1);
 	_init_gps();
 }
 
-bool gps_position_detected()
+bool gps_position_detected(void)
 {
 	return gps.location.isValid();
 }
 
-#define RESET_GPS_AFTER_INACTIVE_TIME_IN_MS 5000
-#define RESET_GPS_MINIMUM_CHAR_PROCESSED 10
-bool gps_need_reset()
+#define RESET_GPS_AFTER_INACTIVE_TIME_IN_MS  5000
+#define RESET_GPS_MINIMUM_CHAR_PROCESSED       10
+bool gps_need_reset(void)
 {
-	// Case where the gps as an issue and doesn't work properly.
-	if ((millis() - time_since_last_reset) > RESET_GPS_AFTER_INACTIVE_TIME_IN_MS
+	if ((_millis() - time_since_last_reset) > RESET_GPS_AFTER_INACTIVE_TIME_IN_MS
 		&& gps.charsProcessed() < RESET_GPS_MINIMUM_CHAR_PROCESSED)
 	{
 		return true;
 	}
-
 	return false;
 }
 
@@ -192,41 +207,40 @@ double gps_get_precision(void)
 	return gps.hdop.hdop();
 }
 
-void gps_get_data()
+void gps_get_data(void)
 {
 	bool waiting_first_data = true;
+	uint8_t c;
+	int len;
 
-	// Read gps data and feed the TinyGPS++ library, display the wanted sentence for debug
+	// Read until the UART buffer is drained; block up to 1 ms per byte so the
+	// task yields while waiting for the first character after wakeup.
 	do
 	{
-		// Data are available, read and encode them
-		if(Serial2.available())
+		len = uart_read_bytes(UART_NUM_2, &c, 1, pdMS_TO_TICKS(1));
+		if (len > 0)
 		{
 			waiting_first_data = false;
-			char c = Serial2.read();
-			gps.encode(c);
-			nmea_encode(c);
+			gps.encode((char)c);
+			nmea_encode((char)c);
 		}
-		else
-		{
-			// Give time to the system to do something else
-			delay(1);
-		}
-	} while (Serial2.available() || waiting_first_data);
+	} while (len > 0 || waiting_first_data);
 
 #if DEBUG_DISPLAY_HOME_STATUS
 	_display_home_status();
 #endif
 
-	// If we have a position and the precision is high enough we can set the home position of the beacon.
-	if (!has_set_home && gps.satellites.value() >= WANTED_SATELLITES && gps.hdop.hdop() <= WANTED_PRECISION) {
+	// Set home once GPS quality meets the threshold
+	if (!has_set_home
+		&& gps.satellites.value() >= WANTED_SATELLITES
+		&& gps.hdop.hdop() <= WANTED_PRECISION)
+	{
 		beacon_set_home(gps.location.lat(), gps.location.lng(), gps.altitude.meters());
 		has_set_home = true;
 	}
 
-	if(has_set_home)
+	if (has_set_home)
 	{
-		// Update the beacon data with all new data received from the gps
 		beacon_update_data(
 				gps.location.lat(),
 				gps.location.lng(),

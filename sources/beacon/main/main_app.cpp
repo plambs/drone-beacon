@@ -17,7 +17,6 @@
  *  With https://github.com/f5soh/balise_esp32/blob/droneID_FR_testing/droneID_FR.h
  */
 
-#include <Arduino.h>
 #include "nvs_flash.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
@@ -27,7 +26,6 @@
 #include "esp_timer.h"
 
 #include "driver/gpio.h"
-#include "driver/uart.h"
 
 #include "led.h"
 #include "gps.h"
@@ -89,7 +87,6 @@ static void _setup_sleep()
 static void _flush_logs(void)
 {
 	fflush(stdout);
-	uart_wait_tx_done(UART_NUM_0, pdMS_TO_TICKS(100));
 }
 #endif
 
@@ -147,8 +144,6 @@ static void _go_to_sleep()
 
 void app_main(void)
 {
-    Serial.begin(SERIAL_DEFAUT_BAUDRATE);
-
 	_init_minimal_system();
 
 #if SLEEP_MODE_ENABLED
@@ -184,7 +179,7 @@ void app_main(void)
 			gps_reset();
 
 			// Wait some time then retry to get gps data
-			delay(DELAY_BEFORE_RELOOPING_MS);
+			vTaskDelay(pdMS_TO_TICKS(DELAY_BEFORE_RELOOPING_MS));
 			continue;
 		}
 
@@ -209,7 +204,7 @@ void app_main(void)
 			// position state should not exceed 3 min in correct condition so the power
 			// usage is limited
 			// Wait some time then retry to get gps data
-			delay(DELAY_BEFORE_RELOOPING_NO_SLEEP_MS);
+			vTaskDelay(pdMS_TO_TICKS(DELAY_BEFORE_RELOOPING_NO_SLEEP_MS));
 			continue;
 		}
 
@@ -241,12 +236,12 @@ main_sleep:
 		/** Wait 10ms before going to the next iteration of the loop so the system can do something else
 		 * like kicking the watchdog
 		 */
-		delay(DELAY_BEFORE_RELOOPING_MS);
+		vTaskDelay(pdMS_TO_TICKS(DELAY_BEFORE_RELOOPING_MS));
 
 #if SLEEP_MODE_ENABLED
 		_go_to_sleep();
 #else
-		delay(DELAY_BEFORE_RELOOPING_NO_SLEEP_MS);
+		vTaskDelay(pdMS_TO_TICKS(DELAY_BEFORE_RELOOPING_NO_SLEEP_MS));
 #endif
 	}
 }

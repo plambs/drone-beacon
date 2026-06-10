@@ -1,6 +1,8 @@
 #ifndef _NMEA_HEADER_
 #define _NMEA_HEADER_
 
+#include <cstdint>
+
 void nmea_encode(char c);
 uint16_t nmea_get_satellites_in_view(void);
 

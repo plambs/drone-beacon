@@ -1,6 +1,8 @@
 #ifndef LED_HEADER
 #define LED_HEADER
 
+#include <stdint.h>
+
 typedef enum {
 	E_LED_OFF = 0,
 	E_LED_ON = 1,
