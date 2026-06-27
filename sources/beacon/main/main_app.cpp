@@ -33,6 +33,8 @@
 #include "config.h"
 #include "nmea.h"
 
+#include "log.h"
+
 /* Forward declaration using the extern C so esp-idf can link */
 extern "C" {
 	void app_main(void);
@@ -149,6 +151,8 @@ void app_main(void)
 #if SLEEP_MODE_ENABLED
 	_setup_sleep();
 #endif
+
+	log("Start main application\n");
 
 	led_init();
 
