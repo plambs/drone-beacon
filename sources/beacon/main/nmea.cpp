@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#include "log.h"
+
 // Per-constellation satellites-in-view counters.
 // Each GSV sentence type carries its own "total in view" count — keeping
 // them separate avoids overwriting one constellation's value with another's.
@@ -13,8 +15,12 @@ static uint16_t _siv_glo = 0;
 static uint16_t _siv_gal = 0;
 static uint16_t _siv_gn  = 0; // combined GNSS sentence ($GNGSV)
 
-static void _parse_gsv(const char *sentence, uint16_t *siv_bucket)
+static int _parse_gsv(const char *sentence, uint16_t *siv_bucket)
 {
+	int ret = 0;
+	fail_if_null(sentence, -1, "sentence is NULL\n");
+	fail_if_null(siv_bucket, -2, "siv_bucket is NULL\n");
+
 	int fieldIndex = 0;
 	uint16_t snr_worse = 99;
 	uint16_t snr_best = 0;
@@ -51,23 +57,43 @@ static void _parse_gsv(const char *sentence, uint16_t *siv_bucket)
 		printf("Satellites in view: %d, SNR, best: %ddb, worst: %ddb\n",
 		       *siv_bucket, snr_best, snr_worse);
 #endif
+
+	(void)ret;
+	return 0;
 }
 
-static void _parse_nmea_sentence(const char *nmea)
+static int _parse_nmea_sentence(const char *nmea)
 {
+	int ret = 0;
+	fail_if_null(nmea, -1, "nmea is NULL\n");
+
 #if DEBUG_DISPLAY_RAW_NMEA_RECEIVED_FROM_GPS
 	printf("%s\n", nmea);
 #endif
 
 	// Route each GSV sentence type to its own counter
-	if      (strncmp(nmea, "$GPGSV", 6) == 0) _parse_gsv(nmea, &_siv_gps);
-	else if (strncmp(nmea, "$GLGSV", 6) == 0) _parse_gsv(nmea, &_siv_glo);
-	else if (strncmp(nmea, "$GAGSV", 6) == 0) _parse_gsv(nmea, &_siv_gal);
-	else if (strncmp(nmea, "$GNGSV", 6) == 0) _parse_gsv(nmea, &_siv_gn);
+	if      (strncmp(nmea, "$GPGSV", 6) == 0) {
+		ret = _parse_gsv(nmea, &_siv_gps);
+		fail_if_negative(ret, -2, "_parse_gsv(GPS) failed, returned: %d\n", ret);
+	}
+	else if (strncmp(nmea, "$GLGSV", 6) == 0) {
+		ret = _parse_gsv(nmea, &_siv_glo);
+		fail_if_negative(ret, -3, "_parse_gsv(GLO) failed, returned: %d\n", ret);
+	}
+	else if (strncmp(nmea, "$GAGSV", 6) == 0) {
+		ret = _parse_gsv(nmea, &_siv_gal);
+		fail_if_negative(ret, -4, "_parse_gsv(GAL) failed, returned: %d\n", ret);
+	}
+	else if (strncmp(nmea, "$GNGSV", 6) == 0) {
+		ret = _parse_gsv(nmea, &_siv_gn);
+		fail_if_negative(ret, -5, "_parse_gsv(GN) failed, returned: %d\n", ret);
+	}
 
 	if (strncmp(nmea, "$PMTKSPF,3*58", 13) == 0) {
 		printf("Interference detected!\n");
 	}
+
+	return 0;
 }
 
 uint16_t nmea_get_satellites_in_view(void)
@@ -78,17 +104,21 @@ uint16_t nmea_get_satellites_in_view(void)
 	return _siv_gps + _siv_glo + _siv_gal;
 }
 
-void nmea_encode(char c)
+int nmea_encode(char c)
 {
+	int ret = 0;
 	static char nmea[128];
 	static int  nmea_len = 0;
 
 	if (c == '\n') {
 		nmea[nmea_len] = '\0';
-		_parse_nmea_sentence(nmea);
+		ret = _parse_nmea_sentence(nmea);
+		fail_if_negative(ret, -1, "_parse_nmea_sentence failed, returned: %d\n", ret);
 		nmea_len = 0;
 	} else if (c != '\r') {
 		if (nmea_len < (int)(sizeof(nmea) - 1))
 			nmea[nmea_len++] = c;
 	}
+
+	return 0;
 }

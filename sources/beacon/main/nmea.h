@@ -3,7 +3,7 @@
 
 #include <cstdint>
 
-void nmea_encode(char c);
+int nmea_encode(char c);
 uint16_t nmea_get_satellites_in_view(void);
 
 #endif /* _NMEA_HEADER_ */

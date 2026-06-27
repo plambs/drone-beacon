@@ -21,6 +21,8 @@
 #include "driver/gpio.h"
 #include "esp_timer.h"
 
+#include "log.h"
+
 #define DIP_SWITCH_1_PIN 13
 #define DIP_SWITCH_2_PIN 14
 #define DIP_SWITCH_3_PIN 27
@@ -90,6 +92,10 @@ static model_mass _get_model_mass(void)
 
 static int _get_mass_str(char *str, int max_size)
 {
+	int ret = 0;
+	fail_if_null(str, -1, "str is NULL\n");
+	fail_if_inferior_or_equal(max_size, 0, -2, "max_size is invalid: %d\n", max_size);
+
 	model_mass mass = _get_model_mass();
 	uint16_t mass_value = 999;
 	switch(mass)
@@ -107,68 +113,100 @@ static int _get_mass_str(char *str, int max_size)
 			mass_value = 150;
 			break;
 		default:
-			printf("Error wrong model mass category: %d\n", mass);
+			fail(-3, "wrong model mass category: %d\n", mass);
 			break;
 	}
 
 	// Format the mass str
-	snprintf(str, max_size, "%03d", mass_value);
+	ret = snprintf(str, max_size, "%03d", mass_value);
+	fail_if_negative(ret, -4, "snprintf failed, returned: %d\n", ret);
 
 	return 0;
 }
 
 static int _get_mac_str(char *str, int max_size)
 {
-	uint8_t mac[6];
-	esp_err_t ret = esp_wifi_get_mac(WIFI_IF_AP, mac);
-	if (ret == ESP_OK) {
+	int ret = 0;
+	fail_if_null(str, -1, "str is NULL\n");
+	fail_if_inferior_or_equal(max_size, 0, -2, "max_size is invalid: %d\n", max_size);
 
-		snprintf(str, max_size, "%02x%02x%02x%02x%02x%02x",
-				mac[0], mac[1], mac[2],
-				mac[3], mac[4], mac[5]);
-	} else {
-		printf("Error while getting the MAC address");
-		return -1;
-	}
+	uint8_t mac[6];
+
+	ret = esp_wifi_get_mac(WIFI_IF_AP, mac);
+	fail_if_not_zero(ret, -3, "esp_wifi_get_mac failed, returned: %d\n", ret);
+
+	ret = snprintf(str, max_size, "%02x%02x%02x%02x%02x%02x",
+			mac[0], mac[1], mac[2],
+			mac[3], mac[4], mac[5]);
+	fail_if_negative(ret, -4, "snprintf failed, returned: %d\n", ret);
 
 	printf("Mac address: %s\n", str);
 
 	return 0;
 }
 
-static void _get_beacon_data(beacon_data *data)
+static int _get_beacon_data(beacon_data *data)
 {
-	snprintf(data->builder_id, 4, "%s", BEACON_BUILDER_ID);
-	snprintf(data->version_id, 4, "%s", BEACON_MODEL_ID);
-	_get_mac_str(data->mac, 13);
+	int ret = 0;
+	fail_if_null(data, -1, "data is NULL\n");
+
+	ret = snprintf(data->builder_id, 4, "%s", BEACON_BUILDER_ID);
+	fail_if_negative(ret, -2, "snprintf builder_id failed, returned: %d\n", ret);
+
+	ret = snprintf(data->version_id, 4, "%s", BEACON_MODEL_ID);
+	fail_if_negative(ret, -3, "snprintf version_id failed, returned: %d\n", ret);
+
+	ret = _get_mac_str(data->mac, 13);
+	fail_if_negative(ret, -4, "_get_mac_str failed, returned: %d\n", ret);
+
 	data->group = _get_model_group();
 	data->mass = _get_model_mass();
-	_get_mass_str(data->mass_str, 4);
+
+	ret = _get_mass_str(data->mass_str, 4);
+	fail_if_negative(ret, -5, "_get_mass_str failed, returned: %d\n", ret);
+
+	return 0;
 }
 
-static void _format_beacon_id(char *str, uint8_t max_size, beacon_data *data)
+static int _format_beacon_id(char *str, uint8_t max_size, beacon_data *data)
 {
+	int ret = 0;
+	fail_if_null(str, -1, "str is NULL\n");
+	fail_if_zero(max_size, -2, "max_size is zero\n");
+	fail_if_null(data, -3, "data is NULL\n");
+
 	// Compute the beacon full id using MAC address
-	snprintf(str, max_size, "%s%s%07d%01d%s%s", data->builder_id, data->version_id, 0, data->group, data->mass_str, data->mac);
+	ret = snprintf(str, max_size, "%s%s%07d%01d%s%s", data->builder_id, data->version_id, 0, data->group, data->mass_str, data->mac);
+	fail_if_negative(ret, -4, "snprintf beacon_id failed, returned: %d\n", ret);
 
 	// Display the beacon full id
 	printf("AlfaTango balise ID: %s  %s  %01d%s%s\n", data->builder_id, data->version_id, data->group, data->mass_str, data->mac);
 	printf("Emitted balise ID  : %s\n", str);
+
+	return 0;
 }
 
-static void _print_beacon_data(beacon_data *data)
+static int _print_beacon_data(beacon_data *data)
 {
+	int ret = 0;
+	fail_if_null(data, -1, "data is NULL\n");
+
 	printf("Beacon data\n");
 	printf(" - builder id: %s\n", data->builder_id);
 	printf(" - version id: %s\n", data->version_id);
 	printf(" - mac: %s\n", data->mac);
 	printf(" - model group: %d\n", data->group);
 	printf(" - model mass: %d (str: %s)\n", data->mass, data->mass_str);
+
+	(void)ret;
+	return 0;
 }
 
 #if DEBUG_DISPLAY_BEACON_DATA
-static void _display_beacon_data()
+static int _display_beacon_data()
 {
+	int ret = 0;
+
 	// Compute elapsed time and save new actual reference time.
 	static uint64_t beaconSec = 0;
 	uint64_t now = (uint64_t)(esp_timer_get_time() / 1000LL);
@@ -182,16 +220,23 @@ static void _display_beacon_data()
 			drone_idfr.get_distance_from_last_position_sent(),
 			drone_idfr.get_ground_speed_kmh()
 		  );
+
+	(void)ret;
+	return 0;
 }
 #endif
 
-void beacon_set_home(double lat, double lng, double alt)
+int beacon_set_home(double lat, double lng, double alt)
 {
+	int ret = 0;
+
 	printf("Setting home position, start altitude: %fm\n", alt);
 	home_is_set = true;
 	home_alt = alt;
 	drone_idfr.set_home_position(lat, lng, home_alt);
 
+	(void)ret;
+	return 0;
 }
 
 bool beacon_is_home_set()
@@ -199,13 +244,18 @@ bool beacon_is_home_set()
 	return home_is_set;
 }
 
-void beacon_update_data(double latitude, double longitude, double altitude, double course, double speed)
+int beacon_update_data(double latitude, double longitude, double altitude, double course, double speed)
 {
+	int ret = 0;
+
 	// Send the gps data to the drone_idfr lib to format them.
 	drone_idfr.set_current_position(latitude, longitude, altitude);
 	drone_idfr.set_heading(course);
 	drone_idfr.set_ground_speed(speed);
 	drone_idfr.set_heigth(altitude - home_alt);
+
+	(void)ret;
+	return 0;
 }
 
 bool beacon_data_must_be_send()
@@ -220,12 +270,14 @@ bool beacon_data_must_be_send()
 	if (drone_idfr.has_home_set() && drone_idfr.time_to_send()) {
 		return true;
 	}
-	
+
 	return false;
 }
 
-void beacon_send_data()
+int beacon_send_data()
 {
+	int ret = 0;
+
 	// write new SSID into beacon frame
 	const size_t ssid_size = (sizeof(ssid)/sizeof(*ssid)) - 1; // remove trailling null termination
 	beaconPacket[40] = ssid_size;  // set size
@@ -246,18 +298,24 @@ void beacon_send_data()
 #endif
 
 #if  DEBUG_DISPLAY_BEACON_DATA
-	_display_beacon_data();
+	ret = _display_beacon_data();
+	fail_if_negative(ret, -1, "_display_beacon_data failed, returned: %d\n", ret);
 #endif
 
 	// Send the wifi identification frame
-	ESP_ERROR_CHECK(esp_wifi_80211_tx(WIFI_IF_AP, beaconPacket, bytes_to_send, true));
+	ret = esp_wifi_80211_tx(WIFI_IF_AP, beaconPacket, bytes_to_send, true);
+	fail_if_not_zero(ret, -2, "esp_wifi_80211_tx failed, returned: %d\n", ret);
 
 	// After sending we reset the send condition.
 	drone_idfr.set_last_send();
+
+	return 0;
 }
 
-void beacon_init()
+int beacon_init()
 {
+	int ret = 0;
+
 	// Set all DIP switch GPIOs as inputs with pull-down
 	gpio_config_t dip_conf = {};
 	dip_conf.pin_bit_mask = (1ULL << DIP_SWITCH_1_PIN) | (1ULL << DIP_SWITCH_2_PIN)
@@ -266,15 +324,18 @@ void beacon_init()
 	dip_conf.pull_up_en   = GPIO_PULLUP_DISABLE;
 	dip_conf.pull_down_en = GPIO_PULLDOWN_ENABLE;
 	dip_conf.intr_type    = GPIO_INTR_DISABLE;
-	gpio_config(&dip_conf);
+	ret = gpio_config(&dip_conf);
+	fail_if_not_zero(ret, -1, "gpio_config failed, returned: %d\n", ret);
 
 	// Init the wifi, create an access point that do nothing.
     printf("Starting AP\n");
 
-    esp_netif_create_default_wifi_ap();
+    esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
+    fail_if_null(ap_netif, -2, "esp_netif_create_default_wifi_ap failed\n");
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    ret = esp_wifi_init(&cfg);
+    fail_if_not_zero(ret, -3, "esp_wifi_init failed, returned: %d\n", ret);
 
     const size_t ssid_size = (sizeof(ssid) / sizeof(*ssid)) - 1;
     wifi_config_t wifi_config = {};
@@ -285,28 +346,45 @@ void beacon_init()
     wifi_config.ap.max_connection = 4;
     wifi_config.ap.beacon_interval = 1000;
 
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
+    ret = esp_wifi_set_mode(WIFI_MODE_AP);
+    fail_if_not_zero(ret, -4, "esp_wifi_set_mode failed, returned: %d\n", ret);
+
+    ret = esp_wifi_set_config(WIFI_IF_AP, &wifi_config);
+    fail_if_not_zero(ret, -5, "esp_wifi_set_config failed, returned: %d\n", ret);
+
+    ret = esp_wifi_start();
+    fail_if_not_zero(ret, -6, "esp_wifi_start failed, returned: %d\n", ret);
 
     uint8_t ap_mac[6];
-    esp_wifi_get_mac(WIFI_IF_AP, ap_mac);
+    ret = esp_wifi_get_mac(WIFI_IF_AP, ap_mac);
+    fail_if_not_zero(ret, -7, "esp_wifi_get_mac failed, returned: %d\n", ret);
+
     printf("AP mac address: %02x:%02x:%02x:%02x:%02x:%02x\n",
            ap_mac[0], ap_mac[1], ap_mac[2], ap_mac[3], ap_mac[4], ap_mac[5]);
 
     //check if Tansmit power is at his max (20 dBm -> 100mW)
 	int8_t P1 = 0;
-    esp_wifi_get_max_tx_power(&P1);
+    ret = esp_wifi_get_max_tx_power(&P1);
+    fail_if_not_zero(ret, -8, "esp_wifi_get_max_tx_power failed, returned: %d\n", ret);
+
     printf("Tx power Value (dBm)=%f\n", (P1*0.25));
     if(P1>77) {
-		led_blink(1);
+		ret = led_blink(1);
+		fail_if_negative(ret, -9, "led_blink failed, returned: %d\n", ret);
     }
 
 	// Format beacon ID according to specification for AlphaTango
-	_get_beacon_data(&data);
-	_print_beacon_data(&data);
-	_format_beacon_id(beacon_id, sizeof(beacon_id), &data);
+	ret = _get_beacon_data(&data);
+	fail_if_negative(ret, -10, "_get_beacon_data failed, returned: %d\n", ret);
+
+	ret = _print_beacon_data(&data);
+	fail_if_negative(ret, -11, "_print_beacon_data failed, returned: %d\n", ret);
+
+	ret = _format_beacon_id(beacon_id, sizeof(beacon_id), &data);
+	fail_if_negative(ret, -12, "_format_beacon_id failed, returned: %d\n", ret);
 
 	// Set the beacon id to into the droneIFR lib
     drone_idfr.set_drone_id(beacon_id);
+
+	return 0;
 }

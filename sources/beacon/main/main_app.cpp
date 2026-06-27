@@ -40,9 +40,9 @@ extern "C" {
 	void app_main(void);
 }
 
-static void _init_minimal_system()
+static int _init_minimal_system()
 {
-	esp_err_t ret;
+	int ret = 0;
 
 	// 1. Init NVS
 	ret = nvs_flash_init();
@@ -50,23 +50,30 @@ static void _init_minimal_system()
 	if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
 			ret == ESP_ERR_NVS_NEW_VERSION_FOUND)
 	{
-		ESP_ERROR_CHECK(nvs_flash_erase());
+		ret = nvs_flash_erase();
+		fail_if_not_zero(ret, -1, "nvs_flash_erase failed, returned: %d\n", ret);
 		ret = nvs_flash_init();
 	}
 
-	ESP_ERROR_CHECK(ret);
+	fail_if_not_zero(ret, -2, "nvs_flash_init failed, returned: %d\n", ret);
 
 	// 2. Init TCP/IP stack
-	ESP_ERROR_CHECK(esp_netif_init());
+	ret = esp_netif_init();
+	fail_if_not_zero(ret, -3, "esp_netif_init failed, returned: %d\n", ret);
 
 	// 3. Init event loop
-	ESP_ERROR_CHECK(esp_event_loop_create_default());
+	ret = esp_event_loop_create_default();
+	fail_if_not_zero(ret, -4, "esp_event_loop_create_default failed, returned: %d\n", ret);
+
+	return 0;
 }
 
 #if SLEEP_MODE_ENABLED
 #define WAKEUP_GPIO GPIO_NUM_4
-static void _setup_sleep()
+static int _setup_sleep()
 {
+	int ret = 0;
+
 	// Configure the chip to wakeup when the wakeup pin in pulled high (PPS froom GPS module).
     gpio_config_t io_conf = {};
     io_conf.intr_type = GPIO_INTR_DISABLE;
@@ -75,26 +82,35 @@ static void _setup_sleep()
     io_conf.pull_down_en = GPIO_PULLDOWN_ENABLE;
     io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
 
-    gpio_config(&io_conf);
+    ret = gpio_config(&io_conf);
+    fail_if_not_zero(ret, -1, "gpio_config failed, returned: %d\n", ret);
 
 	// Wake when GPIO4 goes HIGH
-    ESP_ERROR_CHECK(esp_sleep_enable_ext0_wakeup(WAKEUP_GPIO, 1));
+    ret = esp_sleep_enable_ext0_wakeup(WAKEUP_GPIO, 1);
+    fail_if_not_zero(ret, -2, "esp_sleep_enable_ext0_wakeup failed, returned: %d\n", ret);
 
 	// Also configure the chip to wakeup when the uart received some data.
 	// TODO check if uart2 can wake up the chip
+
+	return 0;
 }
 #endif
 
 #if SLEEP_MODE_ENABLED
-static void _flush_logs(void)
+static int _flush_logs(void)
 {
-	fflush(stdout);
+	int ret = 0;
+	ret = fflush(stdout);
+	fail_if_not_zero(ret, -1, "fflush failed, returned: %d\n", ret);
+	return 0;
 }
 #endif
 
 #if SLEEP_MODE_ENABLED
-static void _go_to_sleep()
+static int _go_to_sleep()
 {
+	int ret = 0;
+
 	// Prevent immediate wakeup
 	while (gpio_get_level(WAKEUP_GPIO))
 	{
@@ -102,20 +118,23 @@ static void _go_to_sleep()
 	}
 
 	// Stop wifi
-	esp_wifi_stop();
+	ret = esp_wifi_stop();
+	fail_if_not_zero(ret, -1, "esp_wifi_stop failed, returned: %d\n", ret);
 
 #if DEBUG_DISPLAY_SLEEP_LOGS
 	printf("Entering light sleep...\n");
 #endif
 
-	_flush_logs();
+	ret = _flush_logs();
+	fail_if_negative(ret, -2, "_flush_logs failed, returned: %d\n", ret);
 
 #if DEBUG_DISPLAY_WAKE_UP_SOURCE_AND_DURATION
 	int64_t t0 = esp_timer_get_time();
 #endif
 
 	// Go to sleep, this function will return when we wakeup.
-	esp_light_sleep_start();
+	ret = esp_light_sleep_start();
+	fail_if_not_zero(ret, -3, "esp_light_sleep_start failed, returned: %d\n", ret);
 
 #if DEBUG_DISPLAY_WAKE_UP_SOURCE_AND_DURATION
 	int64_t t1 = esp_timer_get_time();
@@ -140,25 +159,35 @@ static void _go_to_sleep()
 #endif
 
 	// Restart wifi
-	esp_wifi_start();
+	ret = esp_wifi_start();
+	fail_if_not_zero(ret, -4, "esp_wifi_start failed, returned: %d\n", ret);
+
+	return 0;
 }
 #endif
 
 void app_main(void)
 {
-	_init_minimal_system();
+	int ret = 0;
+
+	ret = _init_minimal_system();
+	log_if_negative(ret, "_init_minimal_system failed, returned: %d\n", ret);
 
 #if SLEEP_MODE_ENABLED
-	_setup_sleep();
+	ret = _setup_sleep();
+	log_if_negative(ret, "_setup_sleep failed, returned: %d\n", ret);
 #endif
 
 	log("Start main application\n");
 
-	led_init();
+	ret = led_init();
+	log_if_negative(ret, "led_init failed, returned: %d\n", ret);
 
-	gps_init();
+	ret = gps_init();
+	log_if_negative(ret, "gps_init failed, returned: %d\n", ret);
 
-	beacon_init();
+	ret = beacon_init();
+	log_if_negative(ret, "beacon_init failed, returned: %d\n", ret);
 
 	printf("Init phase done, go in mainloop\n");
 
@@ -168,19 +197,22 @@ void app_main(void)
 		 * Run the gps mainloop, this get the char sended by the gps module,
 		 * decode them and get all the usefull information for the beacon.
 		 */
-		gps_get_data();
+		ret = gps_get_data();
+		log_if_negative(ret, "gps_get_data failed, returned: %d\n", ret);
 
 		// if gps is dead -> todo reset and reconfigure gps
 		if(gps_need_reset())
 		{
 			// Print info log
-			printf("[ERROR] No GPS detected\n");
+			log_error("No GPS detected\n");
 
 			// Turn off the led when the beacon is not working.
-			led_blink(4);
+			ret = led_blink(4);
+			log_if_negative(ret, "led_blink failed, returned: %d\n", ret);
 
 			// Reset of the gps module
-			gps_reset();
+			ret = gps_reset();
+			log_if_negative(ret, "gps_reset failed, returned: %d\n", ret);
 
 			// Wait some time then retry to get gps data
 			vTaskDelay(pdMS_TO_TICKS(DELAY_BEFORE_RELOOPING_MS));
@@ -199,7 +231,8 @@ void app_main(void)
 		if(!gps_position_detected())
 		{
 			// Blink the led
-			led_blink(3);
+			ret = led_blink(3);
+			log_if_negative(ret, "led_blink failed, returned: %d\n", ret);
 
 			printf("Position unknown\n");
 
@@ -216,7 +249,8 @@ void app_main(void)
 		if(!beacon_is_home_set())
 		{
 			// Blink the led
-			led_blink(2);
+			ret = led_blink(2);
+			log_if_negative(ret, "led_blink failed, returned: %d\n", ret);
 
 			printf("Position detected but no home set\n");
 
@@ -228,12 +262,14 @@ void app_main(void)
 		if(beacon_data_must_be_send())
 		{
 			// toggle the LED to see beacon sended
-			led_toggle_state();
+			ret = led_toggle_state();
+			log_if_negative(ret, "led_toggle_state failed, returned: %d\n", ret);
 
 			printf("Send beacon\n");
 
 			// Send the drone identification frame
-			beacon_send_data();
+			ret = beacon_send_data();
+			log_if_negative(ret, "beacon_send_data failed, returned: %d\n", ret);
 		}
 
 main_sleep:
@@ -243,7 +279,8 @@ main_sleep:
 		vTaskDelay(pdMS_TO_TICKS(DELAY_BEFORE_RELOOPING_MS));
 
 #if SLEEP_MODE_ENABLED
-		_go_to_sleep();
+		ret = _go_to_sleep();
+		log_if_negative(ret, "_go_to_sleep failed, returned: %d\n", ret);
 #else
 		vTaskDelay(pdMS_TO_TICKS(DELAY_BEFORE_RELOOPING_NO_SLEEP_MS));
 #endif

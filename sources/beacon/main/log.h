@@ -85,6 +85,16 @@ void _write_log(const char* log_level_txt, const char * filename, const char * f
 //#########################################
 
 /*
+ * LOG IF THE VALUE IS EXPECTED (does not return, only logs)
+ */
+
+//Log if value_to_check is stricly 'Negative'
+#define log_if_negative(value_to_check, ...)                               \
+	if(value_to_check < 0){                                                   \
+		log_error(__VA_ARGS__);                                               \
+	}
+
+/*
  * DIE IF THE VALUE IS EXPECTED
  */
 

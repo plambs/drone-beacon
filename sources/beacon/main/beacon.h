@@ -39,11 +39,11 @@ typedef struct {
 	char mass_str[4];
 } beacon_data;
 
-void beacon_set_home(double lat, double lng, double alt);
+int beacon_set_home(double lat, double lng, double alt);
 bool beacon_is_home_set();
-void beacon_update_data(double latitude, double longitude, double altitude, double course, double speed);
+int beacon_update_data(double latitude, double longitude, double altitude, double course, double speed);
 bool beacon_data_must_be_send();
-void beacon_send_data();
-void beacon_init();
+int beacon_send_data();
+int beacon_init();
 
 #endif /* _BEACON_HEADER_ */

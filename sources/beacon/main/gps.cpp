@@ -14,6 +14,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#include "log.h"
+
 #define GPS_INIT_TIME_MS             1000
 #define GPS_RESET_TRIGGER_DELAY_MS     25
 #define GPS_BAUDRATE_CHANGE_DELAY_MS  300
@@ -32,8 +34,10 @@ static uint64_t _millis(void)
 	return (uint64_t)(esp_timer_get_time() / 1000LL);
 }
 
-static void _uart2_init(int baud_rate)
+static int _uart2_init(int baud_rate)
 {
+	int ret = 0;
+
 	uart_config_t config;
 	config.baud_rate           = baud_rate;
 	config.data_bits           = UART_DATA_8_BITS;
@@ -44,22 +48,42 @@ static void _uart2_init(int baud_rate)
 	config.source_clk          = UART_SCLK_DEFAULT;
 
 	if (!uart_is_driver_installed(UART_NUM_2)) {
-		uart_driver_install(UART_NUM_2, 1024, 1024, 0, NULL, 0);
+		ret = uart_driver_install(UART_NUM_2, 1024, 1024, 0, NULL, 0);
+		fail_if_not_zero(ret, -1, "uart_driver_install failed, returned: %d\n", ret);
 	}
-	uart_param_config(UART_NUM_2, &config);
-	uart_set_pin(UART_NUM_2, GPS_TX_PIN, GPS_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+
+	ret = uart_param_config(UART_NUM_2, &config);
+	if (ret == ESP_ERR_NOT_SUPPORTED) {
+		log_warn("uart_param_config: light sleep not supported, continuing\n");
+		ret = 0;
+	}
+	fail_if_not_zero(ret, -2, "uart_param_config failed, returned: %d\n", ret);
+
+	ret = uart_set_pin(UART_NUM_2, GPS_TX_PIN, GPS_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+	fail_if_not_zero(ret, -3, "uart_set_pin failed, returned: %d\n", ret);
+
+	return 0;
 }
 
-static void _uart2_close(void)
+static int _uart2_close(void)
 {
+	int ret = 0;
+
 	if (!uart_is_driver_installed(UART_NUM_2))
 	{
-		return;
+		return 0;
 	}
 
-	ESP_ERROR_CHECK(uart_wait_tx_done(UART_NUM_2, pdMS_TO_TICKS(500)));
-	ESP_ERROR_CHECK(uart_flush(UART_NUM_2));
-	uart_driver_delete(UART_NUM_2);
+	ret = uart_wait_tx_done(UART_NUM_2, pdMS_TO_TICKS(500));
+	fail_if_not_zero(ret, -1, "uart_wait_tx_done failed, returned: %d\n", ret);
+
+	ret = uart_flush(UART_NUM_2);
+	fail_if_not_zero(ret, -2, "uart_flush failed, returned: %d\n", ret);
+
+	ret = uart_driver_delete(UART_NUM_2);
+	fail_if_not_zero(ret, -3, "uart_driver_delete failed, returned: %d\n", ret);
+
+	return 0;
 }
 
 #define NMEA_ACK_INVALID_PACKET  0
@@ -78,27 +102,48 @@ static uint8_t _nmea_crc(const char *str)
 
 static int _uart2_send_cmd(const char *str)
 {
+	int ret = 0;
+	fail_if_null(str, -1, "str is NULL\n");
+
 	char suffix[8];
-	snprintf(suffix, sizeof(suffix), "*%02X\r\n", _nmea_crc(str));
-	uart_write_bytes(UART_NUM_2, str, strlen(str));
-	uart_write_bytes(UART_NUM_2, suffix, strlen(suffix));
+
+	ret = snprintf(suffix, sizeof(suffix), "*%02X\r\n", _nmea_crc(str));
+	fail_if_negative(ret, -2, "snprintf failed, returned: %d\n", ret);
+
+	ret = uart_write_bytes(UART_NUM_2, str, strlen(str));
+	fail_if_negative(ret, -3, "uart_write_bytes(cmd) failed, returned: %d\n", ret);
+
+	ret = uart_write_bytes(UART_NUM_2, suffix, strlen(suffix));
+	fail_if_negative(ret, -4, "uart_write_bytes(suffix) failed, returned: %d\n", ret);
+
 	return 0;
 }
 
 static int _pmtk_cmd_id(const char *cmd)
 {
+	int ret = 0;
+	fail_if_null(cmd, -1, "cmd is NULL\n");
+
 	if (strncmp(cmd, "$PMTK", 5) != 0)
-		return -1;
+		return -2;
+
+	(void)ret;
 	return atoi(cmd + 5);
 }
 
 static int _read_nmea_line(char *buf, int buf_len, uint64_t deadline)
 {
+	int ret = 0;
+	fail_if_null(buf, -1, "buf is NULL\n");
+	fail_if_inferior_or_equal(buf_len, 0, -2, "buf_len is invalid: %d\n", buf_len);
+
 	int idx = 0;
 	while ((uint64_t)esp_timer_get_time() < deadline)
 	{
 		uint8_t c;
-		if (uart_read_bytes(UART_NUM_2, &c, 1, pdMS_TO_TICKS(1)) > 0)
+		ret = uart_read_bytes(UART_NUM_2, &c, 1, pdMS_TO_TICKS(1));
+		fail_if_negative(ret, -3, "uart_read_bytes failed, returned: %d\n", ret);
+		if (ret > 0)
 		{
 			if (c == '\n')
 			{
@@ -111,17 +156,22 @@ static int _read_nmea_line(char *buf, int buf_len, uint64_t deadline)
 			}
 		}
 	}
-	return -1;
+	return -4;
 }
 
 // Returns NMEA_ACK_* on success, -1 on CRC mismatch, -2 on timeout.
 static int _wait_gps_ack(int expected_cmd_id)
 {
+	int ret = 0;
 	char line[128];
 	uint64_t deadline = (uint64_t)esp_timer_get_time() + 1000000ULL; // 1000 ms
 
-	while (_read_nmea_line(line, sizeof(line), deadline) == 0)
+	while (1)
 	{
+		ret = _read_nmea_line(line, sizeof(line), deadline);
+		if (ret < 0)
+			return -2;
+
 		if (strncmp(line, "$PMTK001,", 9) != 0)
 			continue;
 
@@ -145,30 +195,24 @@ static int _wait_gps_ack(int expected_cmd_id)
 
 		return flag;
 	}
-
-	return -2;
 }
 
 static int _send_gps_cmd_and_check_result(const char *description, const char *cmd)
 {
-	if (cmd == NULL)
-	{
-		printf("Error: cmd is null\n");
-		return -1;
-	}
+	int ret = 0;
+	fail_if_null(description, -1, "description is NULL\n");
+	fail_if_null(cmd, -2, "cmd is NULL\n");
 
-	int cmd_id = _pmtk_cmd_id(cmd);
-	if (cmd_id < 0)
-	{
-		printf("Error: cannot extract cmd id from: %s\n", cmd);
-		return -2;
-	}
+	ret = _pmtk_cmd_id(cmd);
+	fail_if_negative(ret, -3, "cannot extract cmd id from: %s, returned: %d\n", cmd, ret);
+	int cmd_id = ret;
 
 	for (int attempt = 1; attempt <= 3; attempt++)
 	{
-		_uart2_send_cmd(cmd);
+		ret = _uart2_send_cmd(cmd);
+		fail_if_negative(ret, -4, "_uart2_send_cmd failed, returned: %d\n", ret);
 
-		int ret = _wait_gps_ack(cmd_id);
+		ret = _wait_gps_ack(cmd_id);
 		if (ret == NMEA_ACK_SUCCESS)
 		{
 			printf("%s: OK\n", description);
@@ -181,33 +225,32 @@ static int _send_gps_cmd_and_check_result(const char *description, const char *c
 			printf("%s: attempt %d/3 failed with status %d\n", description, attempt, ret);
 	}
 
-	printf("Error: %s failed after 3 attempts\n", description);
-	return -3;
+	fail(-5, "%s failed after 3 attempts\n", description);
 }
 
 static int _print_gps_firmware_version(void)
 {
+	int ret = 0;
 	char line[128] = {0};
 
 	uint8_t dummy;
 	while (uart_read_bytes(UART_NUM_2, &dummy, 1, 0) > 0);
 
-	_uart2_send_cmd("$PMTK605");
+	ret = _uart2_send_cmd("$PMTK605");
+	fail_if_negative(ret, -1, "_uart2_send_cmd failed, returned: %d\n", ret);
 
 	uint64_t deadline = (uint64_t)esp_timer_get_time() + 1000000ULL;
-	if (_read_nmea_line(line, sizeof(line), deadline) < 0)
-	{
-		printf("Error: no firmware version response\n");
-		return -1;
-	}
+	ret = _read_nmea_line(line, sizeof(line), deadline);
+	fail_if_negative(ret, -2, "no firmware version response, returned: %d\n", ret);
 
 	printf("Quectel L96-M33 fw version: %s\n", line);
 	return 0;
 }
 
 #if DEBUG_DISPLAY_HOME_STATUS
-static void _display_home_status(void)
+static int _display_home_status(void)
 {
+	int ret = 0;
 	static uint64_t home_time = 0;
 	uint64_t now = _millis();
 
@@ -221,12 +264,16 @@ static void _display_home_status(void)
 				WANTED_PRECISION);
 		home_time = now;
 	}
+
+	(void)ret;
+	return 0;
 }
 #endif
 
 #if DEBUG_DISPLAY_GPS_DATA
-static void _display_gps_data(void)
+static int _display_gps_data(void)
 {
+	int ret = 0;
 	static uint64_t gpsSec = 0;
 	static uint64_t gpsMap = 0;
 	uint64_t now = _millis();
@@ -238,68 +285,136 @@ static void _display_gps_data(void)
 		printf("LNG:%.4f - LAT:%.4f\n", gps.location.lng(), gps.location.lat());
 		gpsMap = now;
 	}
+
+	(void)ret;
+	return 0;
 }
 #endif
 
-static void _gps_configure(void)
+static int _gps_configure(void)
 {
+	int ret = 0;
+
 	// Change GPS baudrate to 115200, there is NO ACK for this command
-	_uart2_send_cmd("$PMTK251,115200");
+	ret = _uart2_send_cmd("$PMTK251,115200");
+	fail_if_negative(ret, -1, "_uart2_send_cmd(baudrate) failed, returned: %d\n", ret);
+
 	vTaskDelay(pdMS_TO_TICKS(GPS_BAUDRATE_CHANGE_DELAY_MS));
-	_uart2_close();
+
+	ret = _uart2_close();
+	fail_if_negative(ret, -2, "_uart2_close failed, returned: %d\n", ret);
 
 	// Restart at new baudrate
-	_uart2_init(GPS_BAUDRATE_115200);
+	ret = _uart2_init(GPS_BAUDRATE_115200);
+	fail_if_negative(ret, -3, "_uart2_init(115200) failed, returned: %d\n", ret);
 
-	_print_gps_firmware_version();
+	ret = _print_gps_firmware_version();
+	fail_if_negative(ret, -4, "_print_gps_firmware_version failed, returned: %d\n", ret);
 
 	printf("Configure GPS module:\n");
-	_send_gps_cmd_and_check_result("Enable PPS", "$PMTK255,1");
-	_send_gps_cmd_and_check_result("PPS always 100ms", "$PMTK285,4,100");
-	_send_gps_cmd_and_check_result("Normal navigation mode", "$PMTK886,0");
-	_send_gps_cmd_and_check_result("Disable EASY", "$PMTK869,1,0");
-	_send_gps_cmd_and_check_result("Enable jamming detection", "$PMTK838,1");
-	_send_gps_cmd_and_check_result("GPS + Glonass + Galileo", "$PMTK353,1,1,1,0,0");
-	_send_gps_cmd_and_check_result("Disable QZSS", "$PMTK352,0");
-	_send_gps_cmd_and_check_result("Enable RMC, GGA, GSA and GSV", "$PMTK314,0,1,0,1,1,1,0,0,1,0,0,0,0,0,0,0,0,0,0");
-	_send_gps_cmd_and_check_result("Enable AIC", "$PMTK286,1");
+
+	ret = _send_gps_cmd_and_check_result("Enable PPS", "$PMTK255,1");
+	fail_if_negative(ret, -5, "_send_gps_cmd_and_check_result(PPS) failed, returned: %d\n", ret);
+
+	ret = _send_gps_cmd_and_check_result("PPS always 100ms", "$PMTK285,4,100");
+	fail_if_negative(ret, -6, "_send_gps_cmd_and_check_result(PPS 100ms) failed, returned: %d\n", ret);
+
+	ret = _send_gps_cmd_and_check_result("Normal navigation mode", "$PMTK886,0");
+	fail_if_negative(ret, -7, "_send_gps_cmd_and_check_result(nav mode) failed, returned: %d\n", ret);
+
+	ret = _send_gps_cmd_and_check_result("Disable EASY", "$PMTK869,1,0");
+	fail_if_negative(ret, -8, "_send_gps_cmd_and_check_result(EASY) failed, returned: %d\n", ret);
+
+	ret = _send_gps_cmd_and_check_result("Enable jamming detection", "$PMTK838,1");
+	fail_if_negative(ret, -9, "_send_gps_cmd_and_check_result(jamming) failed, returned: %d\n", ret);
+
+	ret = _send_gps_cmd_and_check_result("GPS + Glonass + Galileo", "$PMTK353,1,1,1,0,0");
+	fail_if_negative(ret, -10, "_send_gps_cmd_and_check_result(constellations) failed, returned: %d\n", ret);
+
+	ret = _send_gps_cmd_and_check_result("Disable QZSS", "$PMTK352,0");
+	fail_if_negative(ret, -11, "_send_gps_cmd_and_check_result(QZSS) failed, returned: %d\n", ret);
+
+	ret = _send_gps_cmd_and_check_result("Enable RMC, GGA, GSA and GSV", "$PMTK314,0,1,0,1,1,1,0,0,1,0,0,0,0,0,0,0,0,0,0");
+	fail_if_negative(ret, -12, "_send_gps_cmd_and_check_result(NMEA output) failed, returned: %d\n", ret);
+
+	ret = _send_gps_cmd_and_check_result("Enable AIC", "$PMTK286,1");
+	fail_if_negative(ret, -13, "_send_gps_cmd_and_check_result(AIC) failed, returned: %d\n", ret);
+
 	printf("Done\n");
+
+	return 0;
 }
 
-static void _trigger_reset_pin(void)
+static int _trigger_reset_pin(void)
 {
+	int ret = 0;
+
 	printf("Trigger GPS module reset\n");
-	gpio_set_level(GPS_RESET_PIN, 0);
+
+	ret = gpio_set_level(GPS_RESET_PIN, 0);
+	fail_if_not_zero(ret, -1, "gpio_set_level(0) failed, returned: %d\n", ret);
+
 	vTaskDelay(pdMS_TO_TICKS(GPS_RESET_TRIGGER_DELAY_MS));
-	gpio_set_level(GPS_RESET_PIN, 1);
+
+	ret = gpio_set_level(GPS_RESET_PIN, 1);
+	fail_if_not_zero(ret, -2, "gpio_set_level(1) failed, returned: %d\n", ret);
+
 	vTaskDelay(pdMS_TO_TICKS(GPS_RESET_TRIGGER_DELAY_MS));
+
+	return 0;
 }
 
-static void _init_gps(void)
+static int _init_gps(void)
 {
-	_uart2_init(GPS_BAUDRATE_DEFAULT);
+	int ret = 0;
+
+	ret = _uart2_init(GPS_BAUDRATE_DEFAULT);
+	fail_if_negative(ret, -1, "_uart2_init failed, returned: %d\n", ret);
+
 	vTaskDelay(pdMS_TO_TICKS(GPS_INIT_TIME_MS));
-	_gps_configure();
+
+	ret = _gps_configure();
+	fail_if_negative(ret, -2, "_gps_configure failed, returned: %d\n", ret);
+
 	time_since_last_reset = _millis();
+
+	return 0;
 }
 
-void gps_reset(void)
+int gps_reset(void)
 {
-	_uart2_close();
-	_trigger_reset_pin();
-	_init_gps();
+	int ret = 0;
+
+	ret = _uart2_close();
+	fail_if_negative(ret, -1, "_uart2_close failed, returned: %d\n", ret);
+
+	ret = _trigger_reset_pin();
+	fail_if_negative(ret, -2, "_trigger_reset_pin failed, returned: %d\n", ret);
+
+	ret = _init_gps();
+	fail_if_negative(ret, -3, "_init_gps failed, returned: %d\n", ret);
+
+	return 0;
 }
 
-void gps_init(void)
+int gps_init(void)
 {
+	int ret = 0;
+
 	// Init the gps module is nothing more than setting the reset
 	// gpio as output and launching the gps reset sequence.
-	gpio_set_direction(GPS_RESET_PIN, GPIO_MODE_OUTPUT);
-	gpio_set_level(GPS_RESET_PIN, 1);
+	ret = gpio_set_direction(GPS_RESET_PIN, GPIO_MODE_OUTPUT);
+	fail_if_not_zero(ret, -1, "gpio_set_direction failed, returned: %d\n", ret);
+
+	ret = gpio_set_level(GPS_RESET_PIN, 1);
+	fail_if_not_zero(ret, -2, "gpio_set_level failed, returned: %d\n", ret);
 
 	vTaskDelay(pdMS_TO_TICKS(200));
 
-	gps_reset();
+	ret = gps_reset();
+	fail_if_negative(ret, -3, "gps_reset failed, returned: %d\n", ret);
+
+	return 0;
 }
 
 bool gps_position_detected(void)
@@ -329,8 +444,9 @@ double gps_get_precision(void)
 	return gps.hdop.hdop();
 }
 
-void gps_get_data(void)
+int gps_get_data(void)
 {
+	int ret = 0;
 	bool waiting_first_data = true;
 	uint8_t c;
 	int len;
@@ -344,12 +460,14 @@ void gps_get_data(void)
 		{
 			waiting_first_data = false;
 			gps.encode((char)c);
-			nmea_encode((char)c);
+			ret = nmea_encode((char)c);
+			fail_if_negative(ret, -1, "nmea_encode failed, returned: %d\n", ret);
 		}
 	} while (len > 0 || waiting_first_data);
 
 #if DEBUG_DISPLAY_HOME_STATUS
-	_display_home_status();
+	ret = _display_home_status();
+	fail_if_negative(ret, -2, "_display_home_status failed, returned: %d\n", ret);
 #endif
 
 	// Set home once GPS quality meets the threshold
@@ -357,21 +475,26 @@ void gps_get_data(void)
 		&& gps.satellites.value() >= WANTED_SATELLITES
 		&& gps.hdop.hdop() <= WANTED_PRECISION)
 	{
-		beacon_set_home(gps.location.lat(), gps.location.lng(), gps.altitude.meters());
+		ret = beacon_set_home(gps.location.lat(), gps.location.lng(), gps.altitude.meters());
+		fail_if_negative(ret, -3, "beacon_set_home failed, returned: %d\n", ret);
 		has_set_home = true;
 	}
 
 	if (has_set_home)
 	{
-		beacon_update_data(
+		ret = beacon_update_data(
 				gps.location.lat(),
 				gps.location.lng(),
 				gps.altitude.meters(),
 				gps.course.deg(),
 				gps.speed.mps());
+		fail_if_negative(ret, -4, "beacon_update_data failed, returned: %d\n", ret);
 
 #if DEBUG_DISPLAY_GPS_DATA
-		_display_gps_data();
+		ret = _display_gps_data();
+		fail_if_negative(ret, -5, "_display_gps_data failed, returned: %d\n", ret);
 #endif
 	}
+
+	return 0;
 }
