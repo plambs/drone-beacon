@@ -2,7 +2,6 @@
 #define _GPS_HEADER_
 
 void gps_init(void);
-void gps_configure(void);
 bool gps_position_detected(void);
 bool gps_need_reset(void);
 void gps_reset(void);
