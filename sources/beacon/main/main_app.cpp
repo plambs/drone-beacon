@@ -122,7 +122,7 @@ static int _go_to_sleep()
 	fail_if_not_zero(ret, -1, "esp_wifi_stop failed, returned: %d\n", ret);
 
 #if DEBUG_DISPLAY_SLEEP_LOGS
-	printf("Entering light sleep...\n");
+	log_debug("Entering light sleep...\n");
 #endif
 
 	ret = _flush_logs();
@@ -141,20 +141,20 @@ static int _go_to_sleep()
 #endif
 
 #if DEBUG_DISPLAY_SLEEP_LOGS
-	printf("Wakeup!\n");
+	log_debug("Wakeup!\n");
 #endif
 
 #if DEBUG_DISPLAY_WAKE_UP_SOURCE_AND_DURATION
-	printf("Sleep duration: %.3f ms\n", (t1 - t0) / 1000.0);
+	log_debug("Sleep duration: %.3f ms\n", (t1 - t0) / 1000.0);
 
 	esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
 	if (cause == ESP_SLEEP_WAKEUP_EXT0)
 	{
-		printf("Wakeup from GPIO4 pulse\n");
+		log_debug("Wakeup from GPIO4 pulse\n");
 	}
 	else
 	{
-		printf("Other wake up source: %d\n", cause);
+		log_debug("Other wake up source: %d\n", cause);
 	}
 #endif
 
@@ -189,7 +189,7 @@ void app_main(void)
 	ret = beacon_init();
 	log_if_negative(ret, "beacon_init failed, returned: %d\n", ret);
 
-	printf("Init phase done, go in mainloop\n");
+	log_info("Init phase done, go in mainloop\n");
 
 	while(1)
 	{
@@ -220,7 +220,7 @@ void app_main(void)
 		}
 
 		// print number satelite, fix, home status and if data must be send
-		printf("sat view: %d, sat fix: %d, hdop: %0.2f, home set: %d\n",
+		log_info("sat view: %d, sat fix: %d, hdop: %0.2f, home set: %d\n",
 			nmea_get_satellites_in_view(),
 			gps_get_satellites(),
 			gps_get_precision(),
@@ -234,7 +234,7 @@ void app_main(void)
 			ret = led_blink(3);
 			log_if_negative(ret, "led_blink failed, returned: %d\n", ret);
 
-			printf("Position unknown\n");
+			log_warn("Position unknown\n");
 
 			// Position is not detected yet, we enable sleep mode only if position
 			// is knowed, this assure us the gps module is working correctly. The no
@@ -252,7 +252,7 @@ void app_main(void)
 			ret = led_blink(2);
 			log_if_negative(ret, "led_blink failed, returned: %d\n", ret);
 
-			printf("Position detected but no home set\n");
+			log_info("Position detected but no home set\n");
 
 			// job done, go to sleep;
 			goto main_sleep;
@@ -265,7 +265,7 @@ void app_main(void)
 			ret = led_toggle_state();
 			log_if_negative(ret, "led_toggle_state failed, returned: %d\n", ret);
 
-			printf("Send beacon\n");
+			log_info("Send beacon\n");
 
 			// Send the drone identification frame
 			ret = beacon_send_data();

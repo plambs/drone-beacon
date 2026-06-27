@@ -140,7 +140,7 @@ static int _get_mac_str(char *str, int max_size)
 			mac[3], mac[4], mac[5]);
 	fail_if_negative(ret, -4, "snprintf failed, returned: %d\n", ret);
 
-	printf("Mac address: %s\n", str);
+	log_info("Mac address: %s\n", str);
 
 	return 0;
 }
@@ -180,8 +180,8 @@ static int _format_beacon_id(char *str, uint8_t max_size, beacon_data *data)
 	fail_if_negative(ret, -4, "snprintf beacon_id failed, returned: %d\n", ret);
 
 	// Display the beacon full id
-	printf("AlfaTango balise ID: %s  %s  %01d%s%s\n", data->builder_id, data->version_id, data->group, data->mass_str, data->mac);
-	printf("Emitted balise ID  : %s\n", str);
+	log_info("AlfaTango balise ID: %s  %s  %01d%s%s\n", data->builder_id, data->version_id, data->group, data->mass_str, data->mac);
+	log_info("Emitted balise ID  : %s\n", str);
 
 	return 0;
 }
@@ -191,12 +191,12 @@ static int _print_beacon_data(beacon_data *data)
 	int ret = 0;
 	fail_if_null(data, -1, "data is NULL\n");
 
-	printf("Beacon data\n");
-	printf(" - builder id: %s\n", data->builder_id);
-	printf(" - version id: %s\n", data->version_id);
-	printf(" - mac: %s\n", data->mac);
-	printf(" - model group: %d\n", data->group);
-	printf(" - model mass: %d (str: %s)\n", data->mass, data->mass_str);
+	log_info("Beacon data\n");
+	log_info(" - builder id: %s\n", data->builder_id);
+	log_info(" - version id: %s\n", data->version_id);
+	log_info(" - mac: %s\n", data->mac);
+	log_info(" - model group: %d\n", data->group);
+	log_info(" - model mass: %d (str: %s)\n", data->mass, data->mass_str);
 
 	(void)ret;
 	return 0;
@@ -214,7 +214,7 @@ static int _display_beacon_data()
 	beaconSec = now;
 
 	// Print the beacon data that we use for the frame
-	printf("Send beacon -> last beacon: %fs, send reason: %s, distance travel: %f m, speed: %f km/h\n",
+	log_debug("Send beacon -> last beacon: %fs, send reason: %s, distance travel: %f m, speed: %f km/h\n",
 			time_elapsed,
 			drone_idfr.has_pass_distance() ? "distance" : "time",
 			drone_idfr.get_distance_from_last_position_sent(),
@@ -230,7 +230,7 @@ int beacon_set_home(double lat, double lng, double alt)
 {
 	int ret = 0;
 
-	printf("Setting home position, start altitude: %fm\n", alt);
+	log_info("Setting home position, start altitude: %fm\n", alt);
 	home_is_set = true;
 	home_alt = alt;
 	drone_idfr.set_home_position(lat, lng, home_alt);
@@ -289,12 +289,13 @@ int beacon_send_data()
 
 #if DEBUG_DISPLAY_BEACON_PACKET
 	// Debug log to show the id frame in the serial console
-	printf("bytes to send: %d\n", bytes_to_send);
-	printf("beaconPacket : ");
+	log_debug("bytes to send: %d\n", bytes_to_send);
+	char hex_buf[MAX_BEACON_SIZE * 5 + 1];
+	int hex_off = 0;
 	for (int i = 0; i < bytes_to_send; i++) {
-		printf("0x%X ", beaconPacket[i]);
+		hex_off += snprintf(hex_buf + hex_off, sizeof(hex_buf) - hex_off, "0x%X ", beaconPacket[i]);
 	}
-	printf("\n");
+	log_debug("beaconPacket: %s\n", hex_buf);
 #endif
 
 #if  DEBUG_DISPLAY_BEACON_DATA
@@ -328,7 +329,7 @@ int beacon_init()
 	fail_if_not_zero(ret, -1, "gpio_config failed, returned: %d\n", ret);
 
 	// Init the wifi, create an access point that do nothing.
-    printf("Starting AP\n");
+    log_info("Starting AP\n");
 
     esp_netif_t *ap_netif = esp_netif_create_default_wifi_ap();
     fail_if_null(ap_netif, -2, "esp_netif_create_default_wifi_ap failed\n");
@@ -359,7 +360,7 @@ int beacon_init()
     ret = esp_wifi_get_mac(WIFI_IF_AP, ap_mac);
     fail_if_not_zero(ret, -7, "esp_wifi_get_mac failed, returned: %d\n", ret);
 
-    printf("AP mac address: %02x:%02x:%02x:%02x:%02x:%02x\n",
+    log_info("AP mac address: %02x:%02x:%02x:%02x:%02x:%02x\n",
            ap_mac[0], ap_mac[1], ap_mac[2], ap_mac[3], ap_mac[4], ap_mac[5]);
 
     //check if Tansmit power is at his max (20 dBm -> 100mW)
@@ -367,7 +368,7 @@ int beacon_init()
     ret = esp_wifi_get_max_tx_power(&P1);
     fail_if_not_zero(ret, -8, "esp_wifi_get_max_tx_power failed, returned: %d\n", ret);
 
-    printf("Tx power Value (dBm)=%f\n", (P1*0.25));
+    log_info("Tx power Value (dBm)=%f\n", (P1*0.25));
     if(P1>77) {
 		ret = led_blink(1);
 		fail_if_negative(ret, -9, "led_blink failed, returned: %d\n", ret);

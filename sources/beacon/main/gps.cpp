@@ -182,7 +182,7 @@ static int _wait_gps_ack(int expected_cmd_id)
 		uint8_t received_crc = (uint8_t)strtol(star + 1, NULL, 16);
 		if (_nmea_crc(line) != received_crc)
 		{
-			printf("ACK CRC mismatch for cmd %d\n", expected_cmd_id);
+			log_warn("ACK CRC mismatch for cmd %d\n", expected_cmd_id);
 			return -1;
 		}
 
@@ -215,14 +215,14 @@ static int _send_gps_cmd_and_check_result(const char *description, const char *c
 		ret = _wait_gps_ack(cmd_id);
 		if (ret == NMEA_ACK_SUCCESS)
 		{
-			printf("%s: OK\n", description);
+			log_info("%s: OK\n", description);
 			return 0;
 		}
 
 		if (ret < 0)
-			printf("%s: attempt %d/3 timeout or CRC error (%d)\n", description, attempt, ret);
+			log_warn("%s: attempt %d/3 timeout or CRC error (%d)\n", description, attempt, ret);
 		else
-			printf("%s: attempt %d/3 failed with status %d\n", description, attempt, ret);
+			log_warn("%s: attempt %d/3 failed with status %d\n", description, attempt, ret);
 	}
 
 	fail(-5, "%s failed after 3 attempts\n", description);
@@ -243,7 +243,7 @@ static int _print_gps_firmware_version(void)
 	ret = _read_nmea_line(line, sizeof(line), deadline);
 	fail_if_negative(ret, -2, "no firmware version response, returned: %d\n", ret);
 
-	printf("Quectel L96-M33 fw version: %s\n", line);
+	log_info("Quectel L96-M33 fw version: %s\n", line);
 	return 0;
 }
 
@@ -256,7 +256,7 @@ static int _display_home_status(void)
 
 	if (now - home_time > LOG_PERIOD_MS)
 	{
-		printf("Home is set: %s, satellites value: %ld (wanted: %d), hdop: %f (wanted: %f)\n",
+		log_debug("Home is set: %s, satellites value: %ld (wanted: %d), hdop: %f (wanted: %f)\n",
 				has_set_home ? "YES" : "NO",
 				gps.satellites.value(),
 				WANTED_SATELLITES,
@@ -279,10 +279,10 @@ static int _display_gps_data(void)
 	uint64_t now = _millis();
 
 	if (now - gpsMap > LOG_PERIOD_MS) {
-		printf("\nPositioning (%llu)\n", gpsSec++);
-		printf("satellites with fix:%lu\n", gps.satellites.value());
-		printf("UTC:%d:%d:%d\n", gps.time.hour(), gps.time.minute(), gps.time.second());
-		printf("LNG:%.4f - LAT:%.4f\n", gps.location.lng(), gps.location.lat());
+		log_debug("Positioning (%llu)\n", gpsSec++);
+		log_debug("satellites with fix:%lu\n", gps.satellites.value());
+		log_debug("UTC:%d:%d:%d\n", gps.time.hour(), gps.time.minute(), gps.time.second());
+		log_debug("LNG:%.4f - LAT:%.4f\n", gps.location.lng(), gps.location.lat());
 		gpsMap = now;
 	}
 
@@ -311,7 +311,7 @@ static int _gps_configure(void)
 	ret = _print_gps_firmware_version();
 	fail_if_negative(ret, -4, "_print_gps_firmware_version failed, returned: %d\n", ret);
 
-	printf("Configure GPS module:\n");
+	log_info("Configure GPS module:\n");
 
 	ret = _send_gps_cmd_and_check_result("Enable PPS", "$PMTK255,1");
 	fail_if_negative(ret, -5, "_send_gps_cmd_and_check_result(PPS) failed, returned: %d\n", ret);
@@ -340,7 +340,7 @@ static int _gps_configure(void)
 	ret = _send_gps_cmd_and_check_result("Enable AIC", "$PMTK286,1");
 	fail_if_negative(ret, -13, "_send_gps_cmd_and_check_result(AIC) failed, returned: %d\n", ret);
 
-	printf("Done\n");
+	log_info("GPS configuration done\n");
 
 	return 0;
 }
@@ -349,7 +349,7 @@ static int _trigger_reset_pin(void)
 {
 	int ret = 0;
 
-	printf("Trigger GPS module reset\n");
+	log_info("Trigger GPS module reset\n");
 
 	ret = gpio_set_level(GPS_RESET_PIN, 0);
 	fail_if_not_zero(ret, -1, "gpio_set_level(0) failed, returned: %d\n", ret);

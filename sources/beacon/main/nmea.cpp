@@ -52,9 +52,9 @@ static int _parse_gsv(const char *sentence, uint16_t *siv_bucket)
 
 #if DEBUG_DISPLAY_SATELLITE_AND_SNR_DETAILS
 	if (snr_best == 0 || snr_worse == 99)
-		printf("Satellites in view: %d\n", *siv_bucket);
+		log_debug("Satellites in view: %d\n", *siv_bucket);
 	else
-		printf("Satellites in view: %d, SNR, best: %ddb, worst: %ddb\n",
+		log_debug("Satellites in view: %d, SNR, best: %ddb, worst: %ddb\n",
 		       *siv_bucket, snr_best, snr_worse);
 #endif
 
@@ -68,7 +68,7 @@ static int _parse_nmea_sentence(const char *nmea)
 	fail_if_null(nmea, -1, "nmea is NULL\n");
 
 #if DEBUG_DISPLAY_RAW_NMEA_RECEIVED_FROM_GPS
-	printf("%s\n", nmea);
+	log_debug("%s\n", nmea);
 #endif
 
 	// Route each GSV sentence type to its own counter
@@ -90,7 +90,7 @@ static int _parse_nmea_sentence(const char *nmea)
 	}
 
 	if (strncmp(nmea, "$PMTKSPF,3*58", 13) == 0) {
-		printf("Interference detected!\n");
+		log_warn("Interference detected!\n");
 	}
 
 	return 0;
