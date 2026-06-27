@@ -16,9 +16,9 @@
 
 #include "log.h"
 
-#define GPS_INIT_TIME_MS             1000
-#define GPS_RESET_TRIGGER_DELAY_MS     25
-#define GPS_BAUDRATE_CHANGE_DELAY_MS  300
+#define GPS_INIT_TIME_MS             2000
+#define GPS_RESET_TRIGGER_DELAY_MS     50
+#define GPS_BAUDRATE_CHANGE_DELAY_MS  600
 #define GPS_BAUDRATE_DEFAULT         9600
 #define GPS_BAUDRATE_115200        115200
 #define GPS_RX_PIN                     16
@@ -61,6 +61,10 @@ static int _uart2_init(int baud_rate)
 
 	ret = uart_set_pin(UART_NUM_2, GPS_TX_PIN, GPS_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
 	fail_if_not_zero(ret, -3, "uart_set_pin failed, returned: %d\n", ret);
+
+	// Flush the uart2 rx buffer to start with a fresh empty buffer.
+	ret = uart_flush(UART_NUM_2);
+	fail_if_not_zero(ret, -4, "uart_flush failed, returned: %d\n", ret);
 
 	return 0;
 }
@@ -295,10 +299,15 @@ static int _gps_configure(void)
 {
 	int ret = 0;
 
+	// Flush the uart2 rx buffer before sending data
+	ret = uart_flush(UART_NUM_2);
+	fail_if_not_zero(ret, -1, "uart_flush failed, returned: %d\n", ret);
+
 	// Change GPS baudrate to 115200, there is NO ACK for this command
 	ret = _uart2_send_cmd("$PMTK251,115200");
 	fail_if_negative(ret, -1, "_uart2_send_cmd(baudrate) failed, returned: %d\n", ret);
 
+	// The application need to wait sometime for the gps to be able to receive command again.
 	vTaskDelay(pdMS_TO_TICKS(GPS_BAUDRATE_CHANGE_DELAY_MS));
 
 	ret = _uart2_close();
