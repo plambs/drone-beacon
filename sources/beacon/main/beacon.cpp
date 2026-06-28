@@ -77,16 +77,16 @@ uint8_t beaconPacket[MAX_BEACON_SIZE] = {
 static model_group _get_model_group(void)
 {
 	uint8_t group = 0;
-	group |= (uint8_t)gpio_get_level((gpio_num_t)DIP_SWITCH_1_PIN);
-	group |= (uint8_t)(gpio_get_level((gpio_num_t)DIP_SWITCH_2_PIN) << 1);
+	group |= (uint8_t)gpio_get_level((gpio_num_t)DIP_SWITCH_2_PIN);
+	group |= (uint8_t)(gpio_get_level((gpio_num_t)DIP_SWITCH_1_PIN) << 1);
 	return (model_group)group;
 }
 
 static model_mass _get_model_mass(void)
 {
 	uint8_t mass = 0;
-	mass |= (uint8_t)gpio_get_level((gpio_num_t)DIP_SWITCH_3_PIN);
-	mass |= (uint8_t)(gpio_get_level((gpio_num_t)DIP_SWITCH_4_PIN) << 1);
+	mass |= (uint8_t)gpio_get_level((gpio_num_t)DIP_SWITCH_4_PIN);
+	mass |= (uint8_t)(gpio_get_level((gpio_num_t)DIP_SWITCH_3_PIN) << 1);
 	return (model_mass)mass;
 }
 
